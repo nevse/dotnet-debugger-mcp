@@ -124,9 +124,12 @@ jobs:
 
     # Both checks are allowed to fail so that every one of them runs and reports its
     # findings; the gate below turns the collected results into the job status.
+    # The submodule carries no .editorconfig of its own, so this repository's rules would be applied
+    # to the debugger's sources - which are formatted to its conventions, not ours, and which nothing
+    # here may reformat anyway
     - name: Check format
       id: format
-      run: dotnet format --verify-no-changes --verbosity diagnostic
+      run: dotnet format --verify-no-changes --verbosity diagnostic --exclude external/
       continue-on-error: true
 
     - name: Run code analysis

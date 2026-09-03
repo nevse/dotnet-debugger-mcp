@@ -7,9 +7,9 @@ namespace SharpDbg.MCP.Tests.Integration;
 
 /// <summary>
 /// Three defects that were reported against SharpDbg and left the backlog with the dependency rather
-/// than being fixed for us, re-tested against clrdbg on 20 August 2026. None of them reproduces
-/// through this server, so these stay as the guard on that: each one drives the sequence that used
-/// to fail, and each pins what a caller sees now.
+/// than being fixed for us, re-tested against clrdbg on 20 August 2026 and again on 3 September
+/// 2026. None of them reproduces through this server, so these stay as the guard on that: each one
+/// drives the sequence that used to fail, and each pins what a caller sees now.
 ///
 /// The terminate one is the one to read carefully: the defect is alive upstream, and what keeps it
 /// away from here is two things that could each change. Its own doc comment carries that.
@@ -156,16 +156,26 @@ public sealed class UpstreamProbeTests
     }
 
     /// <summary>
-    /// UPSTREAM.md defect 6: stepping into code with no symbols of its own, which the debugger is
-    /// meant to decompile to get a location. On SharpDbg the decompilation threw inside itself, the
+    /// UPSTREAM.md defect 6: stepping into code with no symbols of its own. On SharpDbg the debugger
+    /// decompiled such a module to get a location, the decompilation threw inside itself, the
     /// failure was caught and logged, and the callback then neither continued the process nor
     /// reported a stop - so the debuggee stayed suspended and the step was retried forever. It
     /// presented as a hang rather than an error, which is why no test covered it.
     ///
-    /// justMyCode is what gates the attempt, so this is the one probe that needs it off. The
-    /// breakpoint has to be removed before the step: left armed it fires every 150ms, and a
-    /// breakpoint hit cancels the stepper, so a stop would arrive that reads as success without the
-    /// step ever having completed. Only a stop whose reason is 'step' counts.
+    /// clrdbg cannot reach that state at all since 59ebe09 (29 August 2026): it carries no
+    /// decompiler, and a step that lands in a module without symbols steps straight back out, the
+    /// way vsdbg does - there is no source to show, so it does not stop there. That makes the step
+    /// over the interpolated string below land on the next statement of the user's own method
+    /// instead of inside System.Private.CoreLib, and it is fast rather than costing a cold
+    /// decompilation.
+    ///
+    /// So what this pins is the shape of the outcome, not the destination: the step completes, it
+    /// reports itself as a step, and the debuggee is left able to run. Those are what the defect
+    /// took away. justMyCode is off because that is the setting that used to let a step reach code
+    /// without symbols, and it is the configuration the defect needed. The breakpoint has to be
+    /// removed before the step: left armed it fires every 150ms, and a breakpoint hit cancels the
+    /// stepper, so a stop would arrive that reads as success without the step ever having completed.
+    /// Only a stop whose reason is 'step' counts.
     /// </summary>
     [TestMethod]
     public async Task Probe_SteppingIntoCodeWithoutSymbols_DoesNotStrandTheDebuggee()
@@ -187,9 +197,8 @@ public sealed class UpstreamProbeTests
 
         session.StepInto(stopped.StoppedThreadId!.Value);
 
-        // Generous on purpose: this is the only test that pays a cold decompilation of
-        // System.Private.CoreLib, measured here at 25 seconds against a 5MB pdb, and CI caches
-        // nothing and has fewer cores
+        // Still generous, though no longer for the decompilation: the step crosses code without
+        // symbols and steps back out of it, and CI has fewer cores than this machine
         var afterStep = session.WaitForStop(TimeSpan.FromSeconds(120));
 
         // Built only on failure, for the reason the breakpoint probe above records
@@ -198,17 +207,23 @@ public sealed class UpstreamProbeTests
             Assert.Fail(
                 "The step never completed. The debuggee "
                 + $"{debuggee.DescribeResumption(TimeSpan.FromSeconds(5))}, so this is either the "
-                + "decompilation freeze or a step that is merely slow");
+                + "freeze the defect describes or a step that is merely slow");
         }
 
         Assert.AreEqual("step", afterStep.StopReason,
             $"Stopped for '{afterStep.StopReason}' rather than the step completing");
 
-        // Proves the step really left code with symbols. System.Private.CoreLib is the module a step
-        // out of user code lands in first, and it is the one whose decompilation used to throw.
-        // Path.Combine rather than a literal: the decompiler builds this document name with
-        // Path.Combine too, so on Windows it arrives with backslashes
-        StringAssert.StartsWith(afterStep.CurrentLocation, Path.Combine("decompiled", "System.Private.CoreLib"),
-            "The step never reached code without symbols, so it did not exercise the decompiler");
+        // The statement the marker sits on builds an interpolated string, so the step goes through
+        // System.Private.CoreLib, which has no symbols here, and comes back to the next statement of
+        // the method it started in. Landing anywhere else means the step did not cross that code
+        var expected = $"{TestPaths.TestAppSource}:{line + 1}";
+        Assert.AreEqual(expected, afterStep.CurrentLocation,
+            "A step across code without symbols must come back to the next statement of the caller");
+
+        // The whole of the defect: the process must still be running once the step is done with it
+        Assert.IsTrue(session.Continue());
+        Assert.IsTrue(
+            debuggee.WaitForOutput(TimeSpan.FromSeconds(10)),
+            "The debuggee never resumed, so the step left it stranded");
     }
 }
