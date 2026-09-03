@@ -1,3 +1,5 @@
+using System.Text;
+
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages;
 
@@ -317,8 +319,9 @@ internal sealed class DapDebugger : IDisposable
     /// <summary>
     /// The debugger labels a variable "current [int]", which suits a tree in an editor and not a
     /// caller that is handed the type in a field of its own. The suffix is only removed when it is
-    /// exactly the reported type in brackets, so a name that genuinely ends in brackets - an array
-    /// element, "[0]" - is left alone.
+    /// the reported type in brackets - either in full or shortened the way the debugger shortens it
+    /// for the label - so a name that genuinely ends in brackets - an array element, "[0]" - is
+    /// left alone.
     /// </summary>
     private static string NameWithoutType(string name, string? type)
     {
@@ -326,10 +329,40 @@ internal sealed class DapDebugger : IDisposable
             return name;
 
         var suffix = $" [{type}]";
+        if (name.EndsWith(suffix, StringComparison.Ordinal))
+            return name[..^suffix.Length];
+
+        suffix = $" [{ShortTypeName(type)}]";
 
         return name.EndsWith(suffix, StringComparison.Ordinal)
             ? name[..^suffix.Length]
             : name;
+    }
+
+    /// <summary>
+    /// The label carries the type with every namespace dropped, generic arguments included, so
+    /// "System.Collections.Generic.List&lt;MyApp.Point&gt;" is labelled "List&lt;Point&gt;". Only
+    /// the label is shortened - the type reported beside it stays whole - so stripping the suffix
+    /// means shortening the type the same way to compare against it.
+    /// </summary>
+    private static string ShortTypeName(string type)
+    {
+        var shortened = new StringBuilder(type.Length);
+        var segmentStart = 0;
+
+        for (var i = 0; i <= type.Length; i++)
+        {
+            if (i < type.Length && type[i] is not ('<' or '>' or ',' or ' '))
+                continue;
+
+            var segment = type.AsSpan(segmentStart, i - segmentStart);
+            shortened.Append(segment[(segment.LastIndexOf('.') + 1)..]);
+            if (i < type.Length)
+                shortened.Append(type[i]);
+            segmentStart = i + 1;
+        }
+
+        return shortened.ToString();
     }
 
     public EvaluationResult Evaluate(string expression, int frameId)

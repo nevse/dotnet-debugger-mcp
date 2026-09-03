@@ -61,9 +61,9 @@ public class ServerConfiguration
 
     /// <summary>
     /// Restrict debugging to user code, skipping framework and third-party assemblies (default: true).
-    /// Turning it off lets a step reach code that has no symbols, which the debugger then decompiles
-    /// to find a location. That works, but the first module costs seconds - over 20 for
-    /// System.Private.CoreLib - with the debuggee suspended throughout, before the result is cached.
+    /// Turning it off makes the debugger look for symbols of every module rather than only the ones
+    /// built by the user, so a step can surface inside a dependency whose symbols are there. It does
+    /// not let a step stop in code with no symbols at all: such a step steps back out either way.
     /// Environment variable: SHARPDBG_JUST_MY_CODE
     /// </summary>
     public bool JustMyCode { get; set; } = true;

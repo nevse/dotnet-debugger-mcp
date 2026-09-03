@@ -256,20 +256,16 @@ with `get-task-allow.entitlements` containing:
 </plist>
 ```
 
-### Leave Just My Code on
+### What Just My Code changes about stepping
 
-`SHARPDBG_JUST_MY_CODE=false` works, but the first step out of your own code is slow.
+`SHARPDBG_JUST_MY_CODE=false` does not make a step stop in code you have no symbols for. Neither
+setting does: a step that lands in a module without symbols steps straight back out, because there is
+no source to report a location against. A step through an interpolated string goes through
+`System.Private.CoreLib` and comes back to the next statement of your own method either way.
 
-With Just My Code on, a step keeps going until it reaches code you have symbols for, so it never
-surfaces outside your own code. With it off, a step can stop in a module that has no symbols, and the
-debugger decompiles that module to work out where it stopped. It then reports the location against
-the decompiled source, which looks like
-`decompiled/System.Private.CoreLib/.../DefaultInterpolatedStringHandler.cs:28`.
-
-The first time costs real seconds. `System.Private.CoreLib`, which is where a step out of user code
-lands first, took over twenty here, with the debuggee suspended throughout. The result is cached on
-disk and the same step is immediate afterwards. If a step seems to hang, give it a minute before
-concluding anything.
+What the setting changes is which modules get their symbols looked for at all. With Just My Code on,
+only assemblies built by you are searched; with it off, every module is, so a step does surface inside
+a dependency you happen to have symbols for. That is what to turn it off for.
 
 ### Attaching to other users' processes
 
