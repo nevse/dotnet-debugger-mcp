@@ -69,6 +69,47 @@ public class ServerConfiguration
     public bool JustMyCode { get; set; } = true;
 
     /// <summary>
+    /// Where the remote CoreCLR debugger libraries are, as one directory holding
+    /// VsdbgRemoteCoreclrHost and VsdbgRemoteCoreclrTarget. They are part of Visual Studio's
+    /// debugger and cannot be redistributed, so debugging a mobile app needs this set - there is
+    /// nothing sensible to default it to.
+    /// Environment variable: SHARPDBG_VSDBG_LIBRARIES
+    /// </summary>
+    public string? VsdbgLibrariesDirectory { get; set; }
+
+    /// <summary>
+    /// The host half of those libraries, for a machine that does not keep the two together. Set
+    /// this and the target below instead of VsdbgLibrariesDirectory; setting both of them wins.
+    /// Environment variable: SHARPDBG_REMOTE_CORECLR_HOST
+    /// </summary>
+    public string? RemoteCoreclrHostDirectory { get; set; }
+
+    /// <summary>
+    /// The target half: the libraries that go inside the app being debugged, one per platform and
+    /// architecture.
+    /// Environment variable: SHARPDBG_REMOTE_CORECLR_TARGET
+    /// </summary>
+    public string? RemoteCoreclrTargetDirectory { get; set; }
+
+    /// <summary>
+    /// How long starting a mobile app may take, in seconds (default: 600). Starting one is not the
+    /// millisecond affair that starting a local program is: the debugger boots the emulator if it
+    /// is cold, uninstalls and installs the package, pushes the assemblies and launches the app,
+    /// all within the single request that start_program sends. A cold emulator alone can take
+    /// minutes, which is why this is not the operation timeout.
+    /// Environment variable: SHARPDBG_MOBILE_START_TIMEOUT_SECONDS
+    /// </summary>
+    public int MobileStartTimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// How long a mobile build may take, in seconds (default: 900). A first build of a MAUI project
+    /// - restoring, compiling for the platform, packaging and signing - is minutes rather than
+    /// seconds, and a cold NuGet cache makes it longer still.
+    /// Environment variable: SHARPDBG_BUILD_TIMEOUT_SECONDS
+    /// </summary>
+    public int BuildTimeoutSeconds { get; set; } = 900;
+
+    /// <summary>
     /// Server version, as reported to the client over MCP. Read from the assembly rather than
     /// written here, because the package version comes from the release tag at pack time and a
     /// constant would go stale the moment the two disagreed - which, being cosmetic, nobody notices.
@@ -145,6 +186,27 @@ public class ServerConfiguration
             config.JustMyCode = parsedJustMyCode;
         }
 
+        // Remote CoreCLR debugger libraries, for mobile debugging. Kept as written rather than
+        // resolved here: an unset one is the normal case on a machine that debugs no mobile apps,
+        // and a wrong one has to be reported to whoever asked for the app, not at startup.
+        config.VsdbgLibrariesDirectory = Environment.GetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES");
+        config.RemoteCoreclrHostDirectory = Environment.GetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST");
+        config.RemoteCoreclrTargetDirectory = Environment.GetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET");
+
+        // Mobile start timeout
+        var mobileStart = Environment.GetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS");
+        if (int.TryParse(mobileStart, out var parsedMobileStart) && parsedMobileStart > 0)
+        {
+            config.MobileStartTimeoutSeconds = parsedMobileStart;
+        }
+
+        // Build timeout
+        var buildTimeout = Environment.GetEnvironmentVariable("SHARPDBG_BUILD_TIMEOUT_SECONDS");
+        if (int.TryParse(buildTimeout, out var parsedBuildTimeout) && parsedBuildTimeout > 0)
+        {
+            config.BuildTimeoutSeconds = parsedBuildTimeout;
+        }
+
         // Diagnostics
         var diagnostics = Environment.GetEnvironmentVariable("SHARPDBG_ENABLE_DIAGNOSTICS");
         if (bool.TryParse(diagnostics, out var parsedDiagnostics))
@@ -171,6 +233,12 @@ public class ServerConfiguration
 
         if (BreakpointBindTimeoutMs < 100)
             return "BreakpointBindTimeoutMs must be at least 100ms";
+
+        if (MobileStartTimeoutSeconds < 1)
+            return "MobileStartTimeoutSeconds must be at least 1";
+
+        if (BuildTimeoutSeconds < 1)
+            return "BuildTimeoutSeconds must be at least 1";
 
         return null;
     }

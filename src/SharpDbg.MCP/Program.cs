@@ -9,6 +9,7 @@ using SharpDbg.MCP.Configuration;
 using SharpDbg.MCP.Debugging;
 using SharpDbg.MCP.Documentation;
 using SharpDbg.MCP.Logging;
+using SharpDbg.MCP.Mobile;
 
 namespace SharpDbg.MCP;
 
@@ -37,6 +38,7 @@ class Program
         // sessions would otherwise be created and dropped one tool call at a time.
         builder.Services.AddSingleton<DebugSessionManager>();
         builder.Services.AddSingleton<ProcessDiscovery>();
+        builder.Services.AddSingleton<MobileDeviceDiscovery>();
         builder.Services.AddSingleton<DocumentationLoader>();
         builder.Services.AddSingleton<ConceptIndex>();
         builder.Services.AddSingleton<FlowDiagramProvider>();

@@ -1,0 +1,51 @@
+<!--
+  Puts the remote CoreCLR debugging library into the app being built.
+
+  Debugging CoreCLR on a phone needs a profiler library inside the app itself: the debugger sets
+  CORECLR_PROFILER_PATH to it, the runtime loads it at startup, and it is what opens the socket the
+  debugger connects back through. It is part of Visual Studio's debugger, cannot be redistributed,
+  and so is not shipped with this server - the build is pointed at a copy on the machine instead,
+  through RemoteCoreclrTargetDir.
+
+  This file is imported by passing it as CustomAfterMicrosoftCommonTargets on the build command
+  line, which is what lets it apply to a project that knows nothing about it.
+
+  RemoteCoreclrTargetDir is the directory holding one subdirectory per platform, each holding one
+  per runtime identifier - the layout the library is distributed in:
+
+    <RemoteCoreclrTargetDir>/android/arm64-v8a/libvsdbgremotecoreclrtarget.so
+    <RemoteCoreclrTargetDir>/ios/iossimulator-arm64/libvsdbgremotecoreclrtarget.dylib
+    <RemoteCoreclrTargetDir>/maccatalyst/maccatalyst-arm64/libvsdbgremotecoreclrtarget.dylib
+-->
+<Project>
+
+  <!-- Apple targets publish one app bundle for one runtime identifier, so the library is named
+       exactly and added to the publish output. BeforeTargets is what puts it in place while the
+       set of files to publish is still being computed. -->
+  <Target Name="_CopyRemoteCoreclrTargetLibrary"
+          BeforeTargets="_ComputePublishLocation"
+          Condition="'$(RemoteCoreclrTargetDir)' != '' AND '$(_TargetFrameworkPlatform)' != 'android'">
+
+    <PropertyGroup>
+      <_RemoteCoreclrTarget>$(RemoteCoreclrTargetDir)/$(_TargetFrameworkPlatform)/$(RuntimeIdentifier)/libvsdbgremotecoreclrtarget.dylib</_RemoteCoreclrTarget>
+    </PropertyGroup>
+
+    <Error Condition="!Exists('$(_RemoteCoreclrTarget)')"
+           Text="The remote CoreCLR debugging library is missing at $(_RemoteCoreclrTarget). Check that the directory passed as RemoteCoreclrTargetDir holds a copy built for $(RuntimeIdentifier)." />
+
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(_RemoteCoreclrTarget)"
+                             RelativePath="libvsdbgremotecoreclrtarget.dylib"
+                             PublishFolderType="DynamicLibrary"
+                             Kind="Dynamic" />
+    </ItemGroup>
+  </Target>
+
+  <!-- An Android package carries every ABI it supports at once rather than being built for one
+       runtime identifier, so every library under android/ goes in and the loader picks the one
+       matching the device. AndroidNativeLibrary infers the ABI from the directory name. -->
+  <ItemGroup Condition="'$(RemoteCoreclrTargetDir)' != '' AND '$(AndroidAttachDebugger)' == 'true'">
+    <AndroidNativeLibrary Include="$(RemoteCoreclrTargetDir)/android/**/*.so" />
+  </ItemGroup>
+
+</Project>

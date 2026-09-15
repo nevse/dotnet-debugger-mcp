@@ -23,6 +23,11 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("SHARPDBG_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_JUST_MY_CODE", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_BUILD_TIMEOUT_SECONDS", null);
     }
 
     [TestCleanup]
@@ -37,6 +42,11 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("SHARPDBG_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_JUST_MY_CODE", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", null);
+        Environment.SetEnvironmentVariable("SHARPDBG_BUILD_TIMEOUT_SECONDS", null);
     }
 
     [TestMethod]
@@ -54,6 +64,55 @@ public class ServerConfigurationTests
         Assert.AreEqual(2000, config.BreakpointBindTimeoutMs);
         Assert.IsFalse(config.EnableDiagnostics);
         Assert.IsTrue(config.JustMyCode);
+        Assert.IsNull(config.VsdbgLibrariesDirectory);
+        Assert.IsNull(config.RemoteCoreclrHostDirectory);
+        Assert.IsNull(config.RemoteCoreclrTargetDirectory);
+        Assert.AreEqual(600, config.MobileStartTimeoutSeconds);
+        Assert.AreEqual(900, config.BuildTimeoutSeconds);
+    }
+
+    /// <summary>
+    /// Kept as written rather than checked here. An unset one is the normal case on a machine that
+    /// debugs no mobile apps, and a wrong one has to be reported to whoever asked for the app -
+    /// failing at startup would take the whole server down over a setting most sessions never use.
+    /// </summary>
+    [TestMethod]
+    public void LoadFromEnvironment_MobileLibraryPaths_AreReadUnchecked()
+    {
+        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", "/nowhere/Remote");
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", "/nowhere/Host");
+        Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", "/nowhere/Target");
+
+        var config = ServerConfiguration.LoadFromEnvironment();
+
+        Assert.AreEqual("/nowhere/Remote", config.VsdbgLibrariesDirectory);
+        Assert.AreEqual("/nowhere/Host", config.RemoteCoreclrHostDirectory);
+        Assert.AreEqual("/nowhere/Target", config.RemoteCoreclrTargetDirectory);
+        Assert.IsNull(config.Validate());
+    }
+
+    [TestMethod]
+    public void LoadFromEnvironment_MobileTimeouts_AreRead()
+    {
+        Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", "1200");
+        Environment.SetEnvironmentVariable("SHARPDBG_BUILD_TIMEOUT_SECONDS", "60");
+
+        var config = ServerConfiguration.LoadFromEnvironment();
+
+        Assert.AreEqual(1200, config.MobileStartTimeoutSeconds);
+        Assert.AreEqual(60, config.BuildTimeoutSeconds);
+    }
+
+    [TestMethod]
+    public void LoadFromEnvironment_NonsenseMobileTimeouts_KeepTheDefaults()
+    {
+        Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", "0");
+        Environment.SetEnvironmentVariable("SHARPDBG_BUILD_TIMEOUT_SECONDS", "not-a-number");
+
+        var config = ServerConfiguration.LoadFromEnvironment();
+
+        Assert.AreEqual(600, config.MobileStartTimeoutSeconds);
+        Assert.AreEqual(900, config.BuildTimeoutSeconds);
     }
 
     /// <summary>

@@ -60,6 +60,13 @@
     <EmbeddedResource Include="Data\how_dotnet_debuggers_work.md" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Copied rather than embedded: it is passed to MSBuild as a file path, on the build of the
+         user's own MAUI project, so it has to exist on disk beside the server. Being readable is
+         the point of it too - it is added to somebody else's build, and they can see what it adds. -->
+    <None Update="Resources\CopyRemoteCoreclrTargetLibrary.targets" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 
   <!-- The debug adapter travels inside the package, beside the server, because the server starts it as
        a child process and looks for it there. Added through TargetsForTfmSpecificBuildOutput rather than
