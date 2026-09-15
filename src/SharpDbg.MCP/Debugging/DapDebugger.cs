@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages;
@@ -405,26 +405,34 @@ internal sealed class DapDebugger : IDisposable
     }
 
     /// <summary>
-    /// The exception a thread is stopped on. This is the one read that runs code in the target:
-    /// Message, HResult, Source and StackTrace are property getters, evaluated one after another,
-    /// so it costs far more than reading frames or locals. A thread carrying no exception is a
-    /// failure rather than an empty answer, because that is all the adapter reports.
-    /// Several fields of the response are dropped. The short type name and the two descriptions are
+    /// The exception a thread is stopped on. This is the one read that runs code in the target, so it
+    /// costs far more than reading frames or locals: Message is a property getter, and so is
+    /// InnerException, which the debugger reads whether or not there is one. Two evaluations, three
+    /// when the exception wraps another. The type name and the recorded trace are read off the
+    /// exception object itself and cost nothing. A thread carrying no exception is a failure rather
+    /// than an empty answer, because that is all the adapter reports.
+    /// Several fields of the response are dropped. The short type name and the description are
     /// assembled upstream out of what is kept here anyway; the break mode is hardcoded to Always, so
     /// the one field that exists to say how the exception will be treated says it of every exception.
-    /// Inner exceptions come back empty whatever was thrown, which is why they are not read either.
+    /// HResult and Source left with clrdbg 909f807: two more getters for what the type name already
+    /// says, and $exception reads them on demand for the types whose code carries anything at all
+    /// (COMException, Win32Exception).
     /// </summary>
     public ThrownException GetException(int threadId)
     {
         var response = _host.SendRequestSync(new ExceptionInfoRequest { ThreadId = threadId });
         var details = response.Details;
 
+        // The debugger sends the direct inner exception only, as a list of one
+        var inner = details?.InnerException?.FirstOrDefault();
+
         return new ThrownException(
             details?.FullTypeName ?? response.ExceptionId,
             details?.Message,
-            details?.HResult,
-            details?.Source,
-            details?.StackTrace);
+            details?.StackTrace,
+            inner is null
+                ? null
+                : new InnerThrownException(inner.FullTypeName, inner.Message, inner.StackTrace));
     }
 
     public List<AppliedBreakpoint> SetBreakpoints(string filePath, IReadOnlyList<SourceBreakpointRequest> breakpoints)

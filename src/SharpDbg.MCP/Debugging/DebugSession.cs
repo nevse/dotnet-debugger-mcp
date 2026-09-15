@@ -1,4 +1,4 @@
-using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
+﻿using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 
 using SharpDbg.MCP.Configuration;
 using SharpDbg.MCP.Logging;
@@ -1328,9 +1328,9 @@ public class DebugSession : IDisposable
     }
 
     /// <summary>
-    /// A function breakpoint comes back over DAP with no location at all - upstream nulls Line and
-    /// Source for them, in both the response and the event - so BoundLocations can only be filled
-    /// from where it turns out to stop. Asked for upstream as MattParkerDev/sharpdbg#31.
+    /// Where a function breakpoint bound is the only location it has, because the caller supplied a
+    /// name. clrdbg used to null Line and Source for them in both the response and the event, which
+    /// left this empty; it sends the first binding since 909f807 (MattParkerDev/sharpdbg#31).
     /// </summary>
     private static void ApplyDebuggerState(TrackedFunctionBreakpoint tracked, AppliedBreakpoint info)
     {
@@ -1546,14 +1546,15 @@ public class DebugSession : IDisposable
     /// What the debuggee threw, read off the thread it is stopped on. The stop itself carries none
     /// of this - not even the type - so this is the only way to learn what the exception was.
     /// Bounded by the evaluation timeout rather than the operation one, because that is what it is:
-    /// four property getters run in the target, the same cost as four EvaluateExpression calls.
+    /// property getters run in the target, the same cost as that many EvaluateExpression calls - two
+    /// of them, or three when the exception wraps another.
     /// </summary>
     public async Task<ThrownException> GetExceptionInfo(int threadId)
     {
         var debugger = RequireLiveDebugger();
 
         // Off the caller's thread, as evaluation is everywhere else here: the request blocks until
-        // the adapter has run all four getters
+        // the adapter has run every getter it needs
         return await Task.Run(() => debugger.GetException(threadId)).WaitAsync(_evaluationTimeout);
     }
 
@@ -2006,14 +2007,24 @@ public record ThreadInfo(
     string Name);
 
 /// <summary>
-/// What a thread is stopped on, as far as the debugger can be made to say. Every field but the type
-/// comes from running a property getter in the target.
+/// What a thread is stopped on, as far as the debugger can be made to say. The message and the inner
+/// exception come from running a property getter in the target; the type and the recorded trace are
+/// read off the exception object.
 /// </summary>
 public record ThrownException(
     string TypeName,
     string? Message,
-    int? HResult,
-    string? Source,
+    string? StackTrace,
+    InnerThrownException? InnerException);
+
+/// <summary>
+/// The exception a reported one wraps. One level deep and no further: that is all the debugger
+/// sends, and anything below it is $exception.InnerException.InnerException through
+/// evaluate_expression. An inner that was constructed rather than thrown carries no trace.
+/// </summary>
+public record InnerThrownException(
+    string? TypeName,
+    string? Message,
     string? StackTrace);
 
 /// <summary>

@@ -202,7 +202,7 @@ Needs a one-off setup - see [Debugging a .NET MAUI app](#debugging-a-net-maui-ap
 | `get_variables` | Read the locals of a stack frame |
 | `expand_variable` | Expand an object into its members, which may expand further |
 | `evaluate_expression` | Evaluate a C# expression in the context of a frame |
-| `get_exception_info` | Read the type, message, HResult, source and stack trace of what was thrown |
+| `get_exception_info` | Read the type, message, stack trace and inner exception of what was thrown |
 
 ### Documentation
 
