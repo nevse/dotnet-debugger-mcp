@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 
@@ -739,9 +739,11 @@ public sealed class DebugSessionIntegrationTests
 
         Assert.IsTrue(breakpoint.Verified, $"Function breakpoint was not verified: {breakpoint.Message}");
 
-        // A function breakpoint still comes back with no location - a name can bind to several methods
-        // and the protocol has room for one, so upstream declined to guess. See MattParkerDev/sharpdbg#31.
-        Assert.IsEmpty(breakpoint.BoundLocations);
+        // Where it bound is the debugger's to report - the caller supplied a name, not a file and a
+        // line. A name can match several methods and the protocol has room for one, so it reports the
+        // first binding. Upstream declined to guess until clrdbg 909f807; see MattParkerDev/sharpdbg#31.
+        Assert.HasCount(1, breakpoint.BoundLocations);
+        Assert.AreEqual(TestPaths.TestAppSource, breakpoint.BoundLocations[0].FilePath);
 
         var state = WaitForStop(session);
 
@@ -752,6 +754,8 @@ public sealed class DebugSessionIntegrationTests
         Assert.AreEqual(breakpoint.Id, state.LastBreakpoint.BreakpointId,
             "The hit must carry the id the caller was given, which only the debugger can say for a "
             + "function breakpoint - it binds to places nobody asked for");
+        Assert.AreEqual(breakpoint.BoundLocations[0].Line, state.LastBreakpoint.Line,
+            "The location reported at bind time is where it turns out to stop");
     }
 
     [TestMethod]
@@ -978,8 +982,8 @@ public sealed class DebugSessionIntegrationTests
     /// <summary>
     /// A stop names the exception in no way at all - not the type, not the message - so this is
     /// what turns "something was thrown" into something a caller can act on. It is also the one read
-    /// that runs code in the target: Message, HResult, Source and StackTrace are property getters,
-    /// evaluated one after another. That used to leave the debuggee unable to resume at all
+    /// that runs code in the target: Message and InnerException are property getters, evaluated one
+    /// after another. That used to leave the debuggee unable to resume at all
     /// (UPSTREAM.md defect 2, fixed in 0.1.9), which is why this goes on to prove the program still
     /// makes progress afterwards, by the iteration number the next exception carries.
     /// </summary>
@@ -1008,6 +1012,9 @@ public sealed class DebugSessionIntegrationTests
         StringAssert.Contains(thrown.StackTrace, "ThrowAndCatch");
         StringAssert.Contains(thrown.StackTrace, $"line {throwLine}");
 
+        // Nothing wraps this one, and the debugger pays a getter to find that out either way
+        Assert.IsNull(thrown.InnerException);
+
         var iteration = IterationThrownOn(thrown);
 
         // get_exception_info's description sends callers to $exception for everything it does not
@@ -1034,14 +1041,15 @@ public sealed class DebugSessionIntegrationTests
     }
 
     /// <summary>
-    /// HResult and Source, the two the debugger pays function evaluations for. They used to be
-    /// computed and then dropped in the adapter's ToExceptionDetails, and this test reported itself
-    /// inconclusive for as long as that lasted; clrdbg#3 sends them, so it asserts now.
+    /// What an exception wraps, which no other read reports: the debugger evaluates the
+    /// InnerException getter on every exceptionInfo call whether or not there is one, so the only
+    /// question is whether the answer reaches the caller. One level, and no deeper - anything below
+    /// that is $exception.InnerException.InnerException.
     /// </summary>
     [TestMethod]
-    public async Task ExceptionStop_ReportsHResultAndSource()
+    public async Task ExceptionStop_ReportsTheExceptionItWraps()
     {
-        using var debuggee = DebuggeeProcess.Start("--throw");
+        using var debuggee = DebuggeeProcess.Start("--throw-wrapped");
         using var session = CreateSession();
 
         await session.Attach(debuggee.ProcessId);
@@ -1052,9 +1060,16 @@ public sealed class DebugSessionIntegrationTests
 
         var thrown = await session.GetExceptionInfo(state.StoppedThreadId!.Value);
 
-        Assert.AreEqual(unchecked((int)0x80131509), thrown.HResult, "COR_E_INVALIDOPERATION");
-        Assert.AreEqual("SharpDbg.MCP.TestApp", thrown.Source,
-            "Source is the assembly that raised it, not a source file");
+        Assert.AreEqual("System.InvalidOperationException", thrown.TypeName,
+            "The stop belongs to the wrapper, not to what it wraps");
+
+        Assert.IsNotNull(thrown.InnerException);
+        Assert.AreEqual("System.FormatException", thrown.InnerException.TypeName);
+        StringAssert.Contains(thrown.InnerException.Message, "wrapped on iteration");
+
+        // The debuggee builds the inner exception rather than throwing it, and an exception records
+        // its trace as it is thrown, so there is none to report here
+        Assert.IsNull(thrown.InnerException.StackTrace);
     }
 
     /// <summary>

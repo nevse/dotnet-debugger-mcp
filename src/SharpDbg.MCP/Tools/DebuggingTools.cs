@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text.Json;
 
 using ModelContextProtocol.Server;
@@ -353,20 +353,21 @@ public sealed class DebuggingTools
     }
 
     [McpServerTool, Description(
-        "Read the exception the debuggee is stopped on: its type, message, HResult, the assembly it " +
-        "came from and the stack trace it carries. Nothing else reports these - a stop with " +
-        "stop_reason 'exception' names neither the type nor the message - so this is what turns one " +
-        "into something you can act on. " +
+        "Read the exception the debuggee is stopped on: its type, message, the stack trace it " +
+        "carries and the exception it wraps. Nothing else reports these - a stop with stop_reason " +
+        "'exception' names neither the type nor the message - so this is what turns one into " +
+        "something you can act on. " +
         "Only works while stopped on an exception; omit thread_id to read the thread the stop was " +
         "reported on. Note that set_exception_break_mode 'never' resumes exception stops before a " +
         "caller can see them, so there is nothing to read in that mode. " +
-        "This is the one read that runs code inside the target - four property getters - so it is " +
-        "much slower than a stack trace or a variable read, and it gives up after " +
-        "SHARPDBG_EVAL_TIMEOUT_MS. " +
-        "Inner exceptions are not reported, and neither is whether the program is going to handle " +
-        "this one: the debugger does not pass that on. For anything beyond these fields - an inner " +
-        "exception, Data, a property of your own exception type - the exception object itself is in " +
-        "scope as $exception, so evaluate_expression with '$exception.InnerException' reads it, and " +
+        "This is the one read that runs code inside the target - two property getters, three when " +
+        "the exception wraps another - so it is much slower than a stack trace or a variable read, " +
+        "and it gives up after SHARPDBG_EVAL_TIMEOUT_MS. " +
+        "inner_exception goes one level deep, and whether the program is going to handle this one is " +
+        "not reported at all: the debugger does not pass that on. For anything beyond these fields - " +
+        "a second level of inner exception, HResult, Source, Data, a property of your own exception " +
+        "type - the exception object itself is in scope as $exception, so evaluate_expression with " +
+        "'$exception.HResult' or '$exception.InnerException.InnerException' reads it, and " +
         "get_variables on the frame lists it among the locals to expand.")]
     public string GetExceptionInfo(int? thread_id = null, int? session_id = null)
     {
@@ -432,14 +433,20 @@ public sealed class DebuggingTools
                 thread_id = threadId,
                 type = thrown.TypeName,
                 message = thrown.Message,
-                hresult = thrown.HResult,
-                // The assembly the exception was raised in, which is Exception.Source rather than
-                // anything about the source file
-                source = thrown.Source,
                 // The exception's own stack trace as text, which is where it was thrown rather than
                 // where the program is now. get_stack_trace on this thread gives the same place in
                 // a form that can be walked into with get_variables.
-                stack_trace = thrown.StackTrace
+                stack_trace = thrown.StackTrace,
+                // The direct inner exception, null without one. Its trace is the one it recorded when
+                // it was thrown, so an inner that was only constructed to be wrapped has none.
+                inner_exception = thrown.InnerException is null
+                    ? null
+                    : new
+                    {
+                        type = thrown.InnerException.TypeName,
+                        message = thrown.InnerException.Message,
+                        stack_trace = thrown.InnerException.StackTrace
+                    }
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });

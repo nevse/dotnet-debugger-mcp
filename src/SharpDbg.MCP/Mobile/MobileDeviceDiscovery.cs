@@ -134,7 +134,8 @@ public sealed partial class MobileDeviceDiscovery
                     RuntimeIdentifier: null,
                     OsVersion: ReadIniField(ini, "target"),
                     IsEmulator: true,
-                    IsRunning: booted != null) { AdbSerial = booted?.Serial });
+                    IsRunning: booted != null)
+                { AdbSerial = booted?.Serial });
 
                 if (booted != null)
                     running.Remove(booted);
@@ -152,7 +153,8 @@ public sealed partial class MobileDeviceDiscovery
                 RuntimeIdentifier: null,
                 OsVersion: device.SdkVersion is null ? null : $"android-{device.SdkVersion}",
                 IsEmulator: isEmulator,
-                IsRunning: true) { AdbSerial = device.Serial });
+                IsRunning: true)
+            { AdbSerial = device.Serial });
         }
 
         return devices;

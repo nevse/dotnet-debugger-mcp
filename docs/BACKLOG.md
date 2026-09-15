@@ -5,9 +5,10 @@ Effort is a rough estimate: S = under an hour, M = half a day, L = a day or more
 
 ## Waiting on upstream
 
-Nothing, as of 20 August 2026. Three gaps were found in
+Nothing, as of 15 September 2026. Three gaps were found in
 [clrdbg](https://github.com/JaneySprings/clrdbg), the debugger this server drives, all three were
-reported from here, and all three are fixed upstream:
+reported from here, and all three were fixed upstream. One of the three has since been taken back
+out on purpose, and this server followed rather than argued:
 
 - A pause issued in a freshly attached debuggee's first moment used to be answered with success without
   stopping the program, and nothing downstream could tell, because over DAP a running process and a
@@ -20,9 +21,16 @@ reported from here, and all three are fixed upstream:
   Inconclusive.
 - `exceptionInfo` computed `HResult` and `Source` — four function evaluations in the target, which is
   the expensive part of that request — and then left them out of the response, along with
-  `FormattedDescription`. All three are mapped now —
-  [clrdbg#3](https://github.com/JaneySprings/clrdbg/pull/3), and
-  `ExceptionStop_ReportsHResultAndSource` asserts the two this server exposes.
+  `FormattedDescription`. All three were mapped by
+  [clrdbg#3](https://github.com/JaneySprings/clrdbg/pull/3), and removed again in clrdbg `5570e41`,
+  which dropped the two getters rather than the mapping. That is upstream's call and the right one:
+  for a BCL type the HRESULT follows from the type name, a custom exception reports `0x80131500`, and
+  two evaluations per stop is a steep price for repeating what `type` already said. Where the code
+  carries something of its own — `COMException`, `Win32Exception` — `evaluate_expression` on
+  `$exception.HResult` reads it, which is where the tool description already sent callers.
+  `get_exception_info` no longer reports the pair. It reports `inner_exception` instead, one level
+  deep: the debugger evaluates that getter on every call whether or not there is one, so this is the
+  read that was already being paid for — `ExceptionStop_ReportsTheExceptionItWraps` pins it.
 
 The submodule is pinned past all three, so nothing in the suite reports Inconclusive any more.
 

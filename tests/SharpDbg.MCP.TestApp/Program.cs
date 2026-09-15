@@ -1,9 +1,10 @@
-namespace SharpDbg.MCP.TestApp;
+﻿namespace SharpDbg.MCP.TestApp;
 
 /// <summary>
 /// Debuggee used by the integration tests. It loops forever printing a tick, so a test can tell
 /// whether the process is running or suspended by watching its output.
-/// Lines are located by the marker comments below - never hard-code line numbers in tests.
+/// Lines are located by the marker comments below - never hard-code line numbers in tests. A marker
+/// is matched as a substring and the first line wins, so no marker may contain another.
 /// </summary>
 internal static class Program
 {
@@ -16,6 +17,10 @@ internal static class Program
 
         // Off by default, so tests that are not about exceptions are not disturbed by them
         var throwEachIteration = args.Contains("--throw");
+
+        // Throws the same exception wrapped around another one, for the tests that read what the
+        // reported exception wraps
+        var wrapWhatIsThrown = args.Contains("--throw-wrapped");
 
         Console.WriteLine($"PID={Environment.ProcessId}"); // STARTUP-TARGET
         Console.Out.Flush();
@@ -31,8 +36,8 @@ internal static class Program
         {
             counter = Work(counter);
 
-            if (throwEachIteration)
-                ThrowAndCatch(counter);
+            if (throwEachIteration || wrapWhatIsThrown)
+                ThrowAndCatch(counter, wrapWhatIsThrown);
 
             Console.WriteLine($"tick {counter}");
             Console.Out.Flush();
@@ -55,11 +60,21 @@ internal static class Program
     /// <summary>
     /// Throws and handles the exception itself, which is what a debugger that breaks on every
     /// first-chance exception has to cope with: nothing is actually wrong with this program.
+    /// The wrapped form builds its inner exception rather than throwing one, so the stop under test
+    /// is still the wrapper's and the inner carries no recorded trace - which is what an exception
+    /// that was never thrown looks like to a debugger.
     /// </summary>
-    private static void ThrowAndCatch(int counter)
+    private static void ThrowAndCatch(int counter, bool wrapped)
     {
         try
         {
+            if (wrapped)
+            {
+                throw new InvalidOperationException(
+                    $"thrown on iteration {counter}",
+                    new FormatException($"wrapped on iteration {counter}")); // WRAPPED-TARGET
+            }
+
             throw new InvalidOperationException($"thrown on iteration {counter}"); // THROW-TARGET
         }
         catch (InvalidOperationException)
