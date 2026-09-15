@@ -41,6 +41,15 @@ public class DebugSession : IDisposable
     private readonly int _sessionId;
     private readonly bool _justMyCode;
     private readonly TimeSpan _operationTimeout;
+
+    /// <summary>
+    /// What <see cref="Start"/> is allowed to take. It is the operation timeout for an ordinary
+    /// program, which starts in milliseconds, and far longer for a mobile app: starting one means
+    /// booting an emulator, installing a package and launching it, and the debugger does all of
+    /// that inside the single request that starts the program.
+    /// </summary>
+    private TimeSpan _startTimeout;
+    private readonly TimeSpan _mobileStartTimeout;
     private readonly TimeSpan _evaluationTimeout;
     private readonly TimeSpan _breakpointBindTimeout;
     private readonly object _stateLock = new();
@@ -331,6 +340,8 @@ public class DebugSession : IDisposable
         _sessionId = sessionId;
         _justMyCode = configuration.JustMyCode;
         _operationTimeout = TimeSpan.FromSeconds(configuration.OperationTimeoutSeconds);
+        _startTimeout = _operationTimeout;
+        _mobileStartTimeout = TimeSpan.FromSeconds(configuration.MobileStartTimeoutSeconds);
         _evaluationTimeout = TimeSpan.FromMilliseconds(configuration.ExpressionEvaluationTimeoutMs);
         _breakpointBindTimeout = TimeSpan.FromMilliseconds(configuration.BreakpointBindTimeoutMs);
     }
@@ -385,7 +396,8 @@ public class DebugSession : IDisposable
         string program,
         IReadOnlyList<string>? arguments = null,
         string? workingDirectory = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null,
+        MobileLaunchOptions? mobile = null)
     {
         DapDebugger debugger;
         IReadOnlyList<string> filters;
@@ -401,6 +413,7 @@ public class DebugSession : IDisposable
             _launchedProgram = program;
             _phase = SessionPhase.Prepared;
             _isRunning = false;
+            _startTimeout = mobile is null ? _operationTimeout : _mobileStartTimeout;
         }
 
         try
@@ -413,7 +426,8 @@ public class DebugSession : IDisposable
                 _justMyCode,
                 filters,
                 typeCondition,
-                _operationTimeout);
+                _operationTimeout,
+                mobile);
 
             McpLogger.LogDebugSessionEvent(_sessionId, "Launched", $"{program}, not started yet");
         }
@@ -432,6 +446,7 @@ public class DebugSession : IDisposable
     public void Start()
     {
         DapDebugger debugger;
+        TimeSpan timeout;
 
         lock (_stateLock)
         {
@@ -445,13 +460,14 @@ public class DebugSession : IDisposable
 
             debugger = _debugger ?? throw new InvalidOperationException("Debugger not initialized");
 
+            timeout = _startTimeout;
             _phase = SessionPhase.Live;
             _isRunning = true;
         }
 
         try
         {
-            debugger.Start(_operationTimeout);
+            debugger.Start(timeout);
 
             // The debugger names the process it started in a DAP event, and that event races the
             // response to the request that started it - both are in flight at once and arrive on

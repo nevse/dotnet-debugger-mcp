@@ -27,6 +27,8 @@ costs the debug session rather than the server.
   what was thrown
 - Read the debuggee's stdout and stderr
 - Debug more than one process at once, each with its own breakpoints and stops
+- Debug a .NET MAUI app on an Android emulator or phone, an iOS simulator or device, or this Mac as
+  a Mac Catalyst app - building it and stopping before its first line, same as a desktop program
 - Search embedded documentation on ICorDebug, the Debug Adapter Protocol and expression evaluation
 
 ## What it cannot do
@@ -168,6 +170,16 @@ Claude: [get_program_output()]
 | `list_sessions` | List open sessions and what each is debugging |
 | `close_session` | Close a session, detaching first if needed |
 
+### .NET MAUI
+
+Needs a one-off setup - see [Debugging a .NET MAUI app](#debugging-a-net-maui-app).
+
+| Tool | What it does |
+|---|---|
+| `list_mobile_devices` | List Android emulators and phones, iOS simulators and devices, and this Mac |
+| `build_mobile_app` | Build a MAUI project for one of them, against CoreCLR and with the debugging library inside |
+| `launch_mobile_app` | Prepare the built app for debugging, stopped before it starts; `start_program` runs it |
+
 ### Breakpoints
 
 | Tool | What it does |
@@ -300,6 +312,63 @@ shim, so more sessions means more exposure. What such a crash costs is bounded: 
 own debug adapter in a process of its own, so the one that crashes takes its session with it and leaves
 the server and any other session running.
 
+### Debugging a .NET MAUI app
+
+A MAUI app is debugged the same way a desktop program is - prepare, set breakpoints, start - but two
+things have to be true before it can be, and neither is true of an app built the ordinary way.
+
+**It has to run on CoreCLR.** This debugger attaches to CoreCLR and nothing else, while a MAUI app
+still builds against Mono by default. CoreCLR is there from `net10.0-android`, and from `net11.0` for
+`-ios` and `-maccatalyst`; below those versions the app would build, start, and never connect back,
+so `build_mobile_app` refuses them and says which version would work.
+
+**It has to carry the remote debugging library.** Debugging a runtime on a phone takes a native
+library inside the app, which opens the connection the debugger attaches through, and a matching one
+on this side. Both belong to Visual Studio's debugger and cannot be redistributed, so they are not in
+this package - you point the server at a copy on your machine, laid out as it is distributed:
+
+```
+<some directory>/
+  VsdbgRemoteCoreclrHost/     osx-arm64/, win-x64/, linux-x64/ …
+  VsdbgRemoteCoreclrTarget/   android/, ios/, maccatalyst/ …
+```
+
+Set `SHARPDBG_VSDBG_LIBRARIES` to that directory, or pass it to either tool as
+`vsdbg_libraries_path`. `SHARPDBG_REMOTE_CORECLR_HOST` and `SHARPDBG_REMOTE_CORECLR_TARGET` name the
+two halves separately for a machine that does not keep them together.
+
+Then the session looks like this:
+
+```
+list_mobile_devices()                                → ids to choose from
+build_mobile_app(project_path, device_id)            → the .apk or .app, built to be debuggable
+launch_mobile_app(project_path, device_id)           → prepared, not started
+set_breakpoint(file, line)                           → in place before the app's first line
+start_program()                                      → boots, installs, launches: minutes, not seconds
+wait_for_stop()                                      → and from here it is an ordinary debug session
+```
+
+`build_mobile_app` adds an MSBuild file of its own to the build - it ships beside the server as
+`Resources/CopyRemoteCoreclrTargetLibrary.targets`, and is readable - which puts the target library
+into the app bundle or the Android package. Nothing in your project changes.
+
+Some notes on what each platform does:
+
+- **Android.** Pick an emulator by its AVD name; it does not have to be running, because the debugger
+  boots a cold one itself. A phone is picked by its adb serial. The app is built for every ABI at
+  once, so there is no runtime identifier to choose. The app's logcat output arrives in
+  `get_program_output`. `uninstall_app: true` clears a previous install first, which is what to reach
+  for when a signature or a permission has changed.
+- **iOS.** A simulator is picked by its UDID and booted if it is not running. A physical device has to
+  be provisioned for the app the usual way - the debugger installs and launches it, it does not sign
+  it.
+- **Mac Catalyst.** The device id is `maccatalyst`; there is nothing to boot or install, which makes
+  it the quickest way to check that the setup works at all.
+
+`process_id` stays `null` throughout: the app runs on the device, so its pid is not one this machine
+could be pointed at. Everything else - breakpoints, stepping, locals, expressions, exceptions -
+behaves exactly as it does locally.
+
 ### How failures are reported
 
 Every tool reports a failure the same way:
@@ -346,6 +415,11 @@ Set these as environment variables in your client's configuration:
 | `SHARPDBG_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
 | `SHARPDBG_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
 | `SHARPDBG_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |
+| `SHARPDBG_VSDBG_LIBRARIES` | Directory holding `VsdbgRemoteCoreclrHost` and `VsdbgRemoteCoreclrTarget`, needed to debug a MAUI app. See above | unset |
+| `SHARPDBG_REMOTE_CORECLR_HOST` | The host half on its own, when the two are not kept together | unset |
+| `SHARPDBG_REMOTE_CORECLR_TARGET` | The target half on its own | unset |
+| `SHARPDBG_MOBILE_START_TIMEOUT_SECONDS` | Bounds `start_program` for a mobile app, which boots the emulator, installs and launches | `600` |
+| `SHARPDBG_BUILD_TIMEOUT_SECONDS` | Bounds `build_mobile_app` | `900` |
 
 ## Troubleshooting
 
@@ -366,6 +440,15 @@ there, and the server falls back to detection by process name, which misses prog
 renamed.
 
 **A launch or attach hangs on macOS with no error.** See the entitlement section above.
+
+**A MAUI app starts and never stops at a breakpoint.** It is almost certainly running on Mono rather
+than CoreCLR - which happens when it was built by something other than `build_mobile_app`, since an
+ordinary `dotnet build` produces neither the runtime nor the library the debugger needs. Rebuild with
+`build_mobile_app` and launch the app it reports.
+
+**`list_mobile_devices` shows no Android devices.** It reads emulators from the AVD directory and
+connected phones from adb, so it needs the Android SDK: set `ANDROID_HOME` or `ANDROID_SDK_ROOT` if it
+is somewhere unusual. The `warnings` in the response say which source could not be read and why.
 
 To see what the server is doing, set `SHARPDBG_LOG_LEVEL=Trace` and
 `SHARPDBG_ENABLE_DIAGNOSTICS=true`, or run it directly and watch stderr:

@@ -130,29 +130,62 @@ internal sealed class DapDebugger : IDisposable
         bool justMyCode,
         IReadOnlyList<string> filters,
         string? typeCondition,
-        TimeSpan timeout)
+        TimeSpan timeout,
+        MobileLaunchOptions? mobile = null)
     {
         Initialize();
 
-        _host.SendRequestSync(new LaunchRequest
+        var configuration = new Dictionary<string, JToken>
         {
-            ConfigurationProperties = new Dictionary<string, JToken>
-            {
-                ["name"] = "SharpDbg MCP",
-                ["type"] = "coreclr",
-                ["request"] = "launch",
-                ["program"] = program,
-                ["args"] = new JArray(arguments),
-                ["cwd"] = workingDirectory,
-                ["env"] = JObject.FromObject(environment),
-                ["console"] = "internalConsole",
-                ["justMyCode"] = justMyCode
-            }
-        });
+            ["name"] = "SharpDbg MCP",
+            ["type"] = "coreclr",
+            ["request"] = "launch",
+            ["program"] = program,
+            ["args"] = new JArray(arguments),
+            ["cwd"] = workingDirectory,
+            ["env"] = JObject.FromObject(environment),
+            ["console"] = "internalConsole",
+            ["justMyCode"] = justMyCode
+        };
+
+        if (mobile is not null)
+            AddMobileOptions(configuration, mobile);
+
+        _host.SendRequestSync(new LaunchRequest { ConfigurationProperties = configuration });
 
         await _initialized.Task.WaitAsync(timeout).ConfigureAwait(false);
 
         SetExceptionBreakpoints(filters, typeCondition);
+    }
+
+    /// <summary>
+    /// Adds what the adapter reads to decide this is a mobile launch. The property names are the
+    /// adapter's own, shared with the VS Code extension the debugger was written for, so they are
+    /// spelled here exactly as its launch.json spells them.
+    /// </summary>
+    private static void AddMobileOptions(Dictionary<string, JToken> configuration, MobileLaunchOptions mobile)
+    {
+        configuration["remoteCoreclrHost"] = mobile.RemoteCoreclrHost;
+        configuration["remoteCoreclrTarget"] = mobile.RemoteCoreclrTarget;
+
+        var options = new JObject
+        {
+            ["platform"] = mobile.Platform,
+            ["assetsPath"] = mobile.AssetsPath,
+            ["isDevice"] = mobile.IsDevice,
+            ["uninstallApp"] = mobile.UninstallApp,
+            // Zero and null are what the debugger reads as "choose for yourself", which is what it
+            // should do: it forwards the port to the device, so nothing else has to agree on it
+            ["port"] = 0
+        };
+
+        if (mobile.RuntimeIdentifier is not null)
+            options["runtimeIdentifier"] = mobile.RuntimeIdentifier;
+
+        if (mobile.Device is not null)
+            options["device"] = mobile.Device;
+
+        configuration["coreClrMobileDebuggerOptions"] = options;
     }
 
     /// <summary>
