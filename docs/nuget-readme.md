@@ -65,10 +65,9 @@ Execution and inspection: `continue_execution`, `pause_execution`, `step_over`, 
 
 .NET MAUI: `list_mobile_devices`, `build_mobile_app`, `launch_mobile_app` — debug an app on an
 Android emulator or phone, an iOS simulator or device, or this Mac as a Mac Catalyst app, with the
-same breakpoints and stepping. This needs the remote CoreCLR debugger libraries, which belong to
-Visual Studio and cannot travel in this package; see
-[the README](https://github.com/nevse/dotnet-debugger-mcp#debugging-a-net-maui-app) for the one-off
-setup.
+same breakpoints and stepping. The remote CoreCLR debugging libraries this needs ship in the
+package; see [the README](https://github.com/nevse/dotnet-debugger-mcp#debugging-a-net-maui-app) for
+what the app has to target.
 
 It also answers questions about .NET debugging internals: `search_debugging_concepts`,
 `explain_icordebug_interface`, `get_debugging_flow`, `list_debugging_concepts`.

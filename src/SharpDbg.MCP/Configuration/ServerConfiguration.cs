@@ -69,24 +69,16 @@ public class ServerConfiguration
     public bool JustMyCode { get; set; } = true;
 
     /// <summary>
-    /// Where the remote CoreCLR debugger libraries are, as one directory holding
-    /// VsdbgRemoteCoreclrHost and VsdbgRemoteCoreclrTarget. They are part of Visual Studio's
-    /// debugger and cannot be redistributed, so debugging a mobile app needs this set - there is
-    /// nothing sensible to default it to.
-    /// Environment variable: SHARPDBG_VSDBG_LIBRARIES
-    /// </summary>
-    public string? VsdbgLibrariesDirectory { get; set; }
-
-    /// <summary>
-    /// The host half of those libraries, for a machine that does not keep the two together. Set
-    /// this and the target below instead of VsdbgLibrariesDirectory; setting both of them wins.
+    /// The host half of the remote CoreCLR debugger libraries, a directory holding one directory per
+    /// RID. Unset, the copy that ships with the server is used, which is what debugging a mobile app
+    /// normally needs; this is for a copy built locally instead.
     /// Environment variable: SHARPDBG_REMOTE_CORECLR_HOST
     /// </summary>
     public string? RemoteCoreclrHostDirectory { get; set; }
 
     /// <summary>
     /// The target half: the libraries that go inside the app being debugged, one per platform and
-    /// architecture.
+    /// architecture. Unset, the copy that ships with the server is used.
     /// Environment variable: SHARPDBG_REMOTE_CORECLR_TARGET
     /// </summary>
     public string? RemoteCoreclrTargetDirectory { get; set; }
@@ -186,10 +178,9 @@ public class ServerConfiguration
             config.JustMyCode = parsedJustMyCode;
         }
 
-        // Remote CoreCLR debugger libraries, for mobile debugging. Kept as written rather than
-        // resolved here: an unset one is the normal case on a machine that debugs no mobile apps,
-        // and a wrong one has to be reported to whoever asked for the app, not at startup.
-        config.VsdbgLibrariesDirectory = Environment.GetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES");
+        // Overrides of the bundled remote CoreCLR debugger libraries, for mobile debugging. Kept as
+        // written rather than resolved here: a wrong one has to be reported to whoever asked for the
+        // app, not at startup.
         config.RemoteCoreclrHostDirectory = Environment.GetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST");
         config.RemoteCoreclrTargetDirectory = Environment.GetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET");
 

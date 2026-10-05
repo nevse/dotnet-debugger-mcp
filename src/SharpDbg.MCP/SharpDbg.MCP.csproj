@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
       <!-- The debug adapter runs as a child process and has to sit beside this output -->
     <NeedsClrdbgAdapter>true</NeedsClrdbgAdapter>
+      <!-- So do the remote CoreCLR libraries a MAUI app is debugged through -->
+    <NeedsRemoteCoreclrLibraries>true</NeedsRemoteCoreclrLibraries>
 </PropertyGroup>
 
   <!-- Shipped as a .NET tool, so `dnx DotnetDebugger.Mcp` and `dotnet tool exec` both run it with
@@ -79,7 +81,7 @@
        it behind is what makes this package genuinely platform-agnostic, the native shim being shipped
        for every platform at once under runtimes/. -->
   <PropertyGroup>
-    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackClrdbgAdapter</TargetsForTfmSpecificContentInPackage>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackClrdbgAdapter;PackRemoteCoreclrLibraries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <Target Name="PackClrdbgAdapter" DependsOnTargets="BuildClrdbgAdapter">
@@ -87,6 +89,19 @@
       <TfmSpecificPackageFile Include="$(ClrdbgAdapterOutput)/**/*"
                               Exclude="$(ClrdbgAdapterOutput)/clrdbg">
         <PackagePath>tools/$(TargetFramework)/any/clrdbg/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+
+  <!-- The remote CoreCLR libraries go in the same way, for every platform at once: the host half is
+       picked by the RID of the machine debugging, the target half by the device being debugged, and
+       neither is known when the package is made. The metadata is qualified by an item of its own:
+       unqualified, it would batch over the adapter files PackClrdbgAdapter has already added. -->
+  <Target Name="PackRemoteCoreclrLibraries" DependsOnTargets="FetchRemoteCoreclrLibraries">
+    <ItemGroup>
+      <_RemoteCoreclrPackFile Include="$(RemoteCoreclrLibrariesFiles)/**/*" />
+      <TfmSpecificPackageFile Include="@(_RemoteCoreclrPackFile)">
+        <PackagePath>tools/$(TargetFramework)/any/remote-coreclr/%(_RemoteCoreclrPackFile.RecursiveDir)%(_RemoteCoreclrPackFile.Filename)%(_RemoteCoreclrPackFile.Extension)</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>
   </Target>

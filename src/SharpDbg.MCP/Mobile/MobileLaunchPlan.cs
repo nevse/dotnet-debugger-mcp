@@ -17,7 +17,7 @@ public sealed record MobileLaunchPlan(
     string? AdbSerial,
     string Program,
     string AssetsPath,
-    VsdbgLibraries Libraries)
+    RemoteCoreclrLibraries Libraries)
 {
     /// <summary>
     /// The plan as the debugger takes it. Mac Catalyst names no device - it runs on this machine -
@@ -51,7 +51,7 @@ public sealed record MobileLaunchPlan(
         MobileDevice device,
         string configuration,
         string? targetFramework,
-        VsdbgLibraries libraries,
+        RemoteCoreclrLibraries libraries,
         TimeSpan timeout)
     {
         ArgumentNullException.ThrowIfNull(device);

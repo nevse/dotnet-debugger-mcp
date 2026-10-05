@@ -11,7 +11,7 @@ namespace SharpDbg.MCP.Tests.Mobile;
 [TestClass]
 public class MobileLaunchPlanTests
 {
-    private static readonly VsdbgLibraries Libraries = new("/libs/host", "/libs/target");
+    private static readonly RemoteCoreclrLibraries Libraries = new("/libs/host", "/libs/target");
 
     private static MobileLaunchPlan PlanFor(MobileDevice device) => new(
         ProjectPath: "/src/App/App.csproj",

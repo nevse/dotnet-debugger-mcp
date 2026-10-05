@@ -12,7 +12,7 @@ namespace SharpDbg.MCP.Tests.Integration;
 [TestClass]
 public class MobileLaunchPlanIntegrationTests
 {
-    private static readonly VsdbgLibraries Libraries = new("/libs/host", "/libs/target");
+    private static readonly RemoteCoreclrLibraries Libraries = new("/libs/host", "/libs/target");
 
     private static readonly MobileDevice AndroidEmulator = new(
         "Pixel_7_API_35", "Pixel_7_API_35", MobilePlatforms.Android, null, "android-35",

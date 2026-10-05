@@ -164,7 +164,7 @@ public sealed class UpstreamProbeTests
     ///
     /// clrdbg cannot reach that state at all since 59ebe09 (29 August 2026): it carries no
     /// decompiler, and a step that lands in a module without symbols steps straight back out, the
-    /// way vsdbg does - there is no source to show, so it does not stop there. That makes the step
+    /// way Visual Studio's debugger does - there is no source to show, so it does not stop there. That makes the step
     /// over the interpolated string below land on the next statement of the user's own method
     /// instead of inside System.Private.CoreLib, and it is fast rather than costing a cold
     /// decompilation.

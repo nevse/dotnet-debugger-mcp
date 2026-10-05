@@ -47,4 +47,63 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    Fetches the remote CoreCLR debugging libraries and puts them beside whatever needs them, as
+    remote-coreclr/remote-host/<rid>/ and remote-coreclr/remote-target/<platform>/<rid>/ - the layout
+    the release zip carries, which is also the one the adapter reads. Debugging a MAUI app takes one
+    of each: the target library goes inside the app and the adapter loads the host library to talk
+    to it.
+
+    Downloaded once per version into the repository's own obj/, shared by every project and every
+    configuration, and checked against the pinned hash before it is unpacked. Set
+    NeedsRemoteCoreclrLibraries in a project to opt into this.
+  -->
+  <PropertyGroup>
+    <RemoteCoreclrLibrariesCache>$(MSBuildThisFileDirectory)obj/remote-coreclr/$(RemoteCoreclrLibrariesVersion)</RemoteCoreclrLibrariesCache>
+    <RemoteCoreclrLibrariesFiles>$(RemoteCoreclrLibrariesCache)/files</RemoteCoreclrLibrariesFiles>
+  </PropertyGroup>
+
+  <Target Name="FetchRemoteCoreclrLibraries" Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
+    <PropertyGroup>
+      <_RemoteCoreclrLibrariesZip>$(RemoteCoreclrLibrariesCache)/RemoteCoreClrLibraries.zip</_RemoteCoreclrLibrariesZip>
+      <!-- Written last, so an interrupted download or unpack is redone rather than half-used -->
+      <_RemoteCoreclrLibrariesStamp>$(RemoteCoreclrLibrariesCache)/unpacked.stamp</_RemoteCoreclrLibrariesStamp>
+    </PropertyGroup>
+
+    <DownloadFile Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+                  SourceUrl="$(RemoteCoreclrLibrariesUrl)"
+                  DestinationFolder="$(RemoteCoreclrLibrariesCache)"
+                  DestinationFileName="RemoteCoreClrLibraries.zip"
+                  Retries="3" />
+
+    <VerifyFileHash Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+                    File="$(_RemoteCoreclrLibrariesZip)"
+                    Algorithm="SHA256"
+                    Hash="$(RemoteCoreclrLibrariesSha256)" />
+
+    <RemoveDir Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Directories="$(RemoteCoreclrLibrariesFiles)" />
+
+    <Unzip Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+           SourceFiles="$(_RemoteCoreclrLibrariesZip)"
+           DestinationFolder="$(RemoteCoreclrLibrariesFiles)" />
+
+    <Touch Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Files="$(_RemoteCoreclrLibrariesStamp)" AlwaysCreate="true" />
+
+    <Error Condition="!Exists('$(RemoteCoreclrLibrariesFiles)/remote-host') OR !Exists('$(RemoteCoreclrLibrariesFiles)/remote-target')"
+           Text="$(RemoteCoreclrLibrariesUrl) unpacked without remote-host/ and remote-target/ into $(RemoteCoreclrLibrariesFiles). Delete $(RemoteCoreclrLibrariesCache) and build again." />
+  </Target>
+
+  <Target Name="CopyRemoteCoreclrLibraries"
+          BeforeTargets="Build"
+          DependsOnTargets="FetchRemoteCoreclrLibraries"
+          Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
+    <ItemGroup>
+      <RemoteCoreclrLibraryFiles Include="$(RemoteCoreclrLibrariesFiles)/**/*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(RemoteCoreclrLibraryFiles)"
+          DestinationFiles="@(RemoteCoreclrLibraryFiles->'$(OutDir)remote-coreclr/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

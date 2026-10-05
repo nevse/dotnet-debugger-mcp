@@ -23,6 +23,15 @@
          Unset, everything builds against the pinned submodule. -->
     <ClrdbgSourcePath Condition="'$(ClrdbgSourcePath)' == ''">$(MSBuildThisFileDirectory)external/clrdbg</ClrdbgSourcePath>
 
+    <!-- The remote CoreCLR debugging libraries for mobile apps, taken from a clrdbg release rather
+         than built: the host half is NativeAOT for six RIDs and the target half needs Xcode and the
+         Android NDK, which no ordinary build of this repository has. Pinned by version and by hash,
+         and kept to the release the submodule is at, since the two halves speak a protocol the
+         adapter has to match. Bump all three together with the submodule. -->
+    <RemoteCoreclrLibrariesVersion>18.0.0</RemoteCoreclrLibrariesVersion>
+    <RemoteCoreclrLibrariesUrl>https://github.com/JaneySprings/clrdbg/releases/download/$(RemoteCoreclrLibrariesVersion)/RemoteCoreClrLibraries.zip</RemoteCoreclrLibrariesUrl>
+    <RemoteCoreclrLibrariesSha256>25084a12dba52b4a94de1db07354326a5bbed285f4cea50e7566cdb13c810f58</RemoteCoreclrLibrariesSha256>
+
     <!-- Repository and package metadata -->
     <Authors>SharpDbg MCP Contributors</Authors>
     <Copyright>Copyright © 2026 SharpDbg MCP Contributors</Copyright>
