@@ -3,9 +3,8 @@
 
   Debugging CoreCLR on a phone needs a profiler library inside the app itself: the debugger sets
   CORECLR_PROFILER_PATH to it, the runtime loads it at startup, and it is what opens the socket the
-  debugger connects back through. It is part of Visual Studio's debugger, cannot be redistributed,
-  and so is not shipped with this server - the build is pointed at a copy on the machine instead,
-  through RemoteCoreclrTargetDir.
+  debugger connects back through. It comes from a clrdbg release and ships with this server, which
+  points the build at its copy through RemoteCoreclrTargetDir.
 
   This file is imported by passing it as CustomAfterMicrosoftCommonTargets on the build command
   line, which is what lets it apply to a project that knows nothing about it.
@@ -13,9 +12,9 @@
   RemoteCoreclrTargetDir is the directory holding one subdirectory per platform, each holding one
   per runtime identifier - the layout the library is distributed in:
 
-    <RemoteCoreclrTargetDir>/android/arm64-v8a/libvsdbgremotecoreclrtarget.so
-    <RemoteCoreclrTargetDir>/ios/iossimulator-arm64/libvsdbgremotecoreclrtarget.dylib
-    <RemoteCoreclrTargetDir>/maccatalyst/maccatalyst-arm64/libvsdbgremotecoreclrtarget.dylib
+    <RemoteCoreclrTargetDir>/android/arm64-v8a/libremotecoreclrtarget.so
+    <RemoteCoreclrTargetDir>/ios/iossimulator-arm64/libremotecoreclrtarget.dylib
+    <RemoteCoreclrTargetDir>/maccatalyst/maccatalyst-arm64/libremotecoreclrtarget.dylib
 -->
 <Project>
 
@@ -27,7 +26,7 @@
           Condition="'$(RemoteCoreclrTargetDir)' != '' AND '$(_TargetFrameworkPlatform)' != 'android'">
 
     <PropertyGroup>
-      <_RemoteCoreclrTarget>$(RemoteCoreclrTargetDir)/$(_TargetFrameworkPlatform)/$(RuntimeIdentifier)/libvsdbgremotecoreclrtarget.dylib</_RemoteCoreclrTarget>
+      <_RemoteCoreclrTarget>$(RemoteCoreclrTargetDir)/$(_TargetFrameworkPlatform)/$(RuntimeIdentifier)/libremotecoreclrtarget.dylib</_RemoteCoreclrTarget>
     </PropertyGroup>
 
     <Error Condition="!Exists('$(_RemoteCoreclrTarget)')"
@@ -35,7 +34,7 @@
 
     <ItemGroup>
       <ResolvedFileToPublish Include="$(_RemoteCoreclrTarget)"
-                             RelativePath="libvsdbgremotecoreclrtarget.dylib"
+                             RelativePath="libremotecoreclrtarget.dylib"
                              PublishFolderType="DynamicLibrary"
                              Kind="Dynamic" />
     </ItemGroup>

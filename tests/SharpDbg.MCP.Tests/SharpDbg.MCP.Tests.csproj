@@ -5,6 +5,8 @@
     <IsTestProject>true</IsTestProject>
       <!-- The debug adapter runs as a child process and has to sit beside this output -->
     <NeedsClrdbgAdapter>true</NeedsClrdbgAdapter>
+      <!-- The mobile tests resolve the bundled remote CoreCLR libraries beside this output too -->
+    <NeedsRemoteCoreclrLibraries>true</NeedsRemoteCoreclrLibraries>
 </PropertyGroup>
 
   <ItemGroup>

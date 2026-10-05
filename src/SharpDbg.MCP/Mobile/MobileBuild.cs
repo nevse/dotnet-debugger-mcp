@@ -129,7 +129,7 @@ internal static class MobileBuild
         if (!string.IsNullOrEmpty(plan.RuntimeIdentifier))
             yield return new("RuntimeIdentifier", plan.RuntimeIdentifier);
 
-        yield return new("CustomAfterMicrosoftCommonTargets", VsdbgLibraries.TargetsFile);
+        yield return new("CustomAfterMicrosoftCommonTargets", RemoteCoreclrLibraries.TargetsFile);
         yield return new("RemoteCoreclrTargetDir", plan.Libraries.TargetDirectory);
         yield return new("UseMonoRuntime", "false");
         yield return new("EnableDiagnostics", "true");

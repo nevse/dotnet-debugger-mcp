@@ -1479,7 +1479,7 @@ Whether you're building your own debugging tools, contributing to existing proje
 - [SharpDbg](https://github.com/MattParkerDev/sharpdbg) - Study subject of this document
 - [ClrDebug](https://github.com/lordmilko/ClrDebug) - Managed ICorDebug wrappers
 - [netcoredbg](https://github.com/Samsung/netcoredbg) - Alternative C++ implementation
-- [vsdbg](https://github.com/microsoft/MIEngine) - Microsoft's DAP debugger
+- [MIEngine](https://github.com/microsoft/MIEngine) - Microsoft's debug engine for VS Code
 
 **Books:**
 - "Debugging Applications" by John Robbins

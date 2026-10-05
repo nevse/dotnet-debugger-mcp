@@ -22,8 +22,10 @@
     <Error Condition="!Exists('$(ClrdbgAdapterProject)')"
            Text="The debugger is missing at $(ClrdbgSourcePath). It is a git submodule: run 'git submodule update --init', or point ClrdbgSourcePath at a checkout of your own." />
 
-    <!-- AssetsPath is where their build puts its output, and is redirected here so a Debug and a
-         Release build of this repository do not overwrite each other in the submodule -->
+    <!-- OutputPath is redirected here so a Debug and a Release build of this repository do not
+         overwrite each other in the submodule's out/. It is set as a global property, which wins
+         over the fixed path the adapter's csproj gives it, and so also lands the projects it
+         references here - where copying them as its dependencies would put them anyway. -->
     <!-- The child gets its own MSBuild nodes and no inherited MSBUILD_EXE_PATH. Both halves are
          load-bearing and both were measured: under 'dotnet test' the nested build otherwise deadlocks,
          spawning no child process and never returning, while the same command with this target
@@ -31,7 +33,7 @@
          reuse alone was not tried, since the variable points the child at the caller's MSBuild and is
          wrong to inherit regardless. Do not clear MSBuildSDKsPath with it - the child then cannot find
          Microsoft.NET.Sdk at all. Plain 'dotnet build' never showed the deadlock. -->
-    <Exec Command="dotnet build &quot;$(ClrdbgAdapterProject)&quot; -c $(Configuration) -nodeReuse:false -p:SelfContained=false -p:AssetsPath=&quot;$(ClrdbgAdapterOutput)&quot;"
+    <Exec Command="dotnet build &quot;$(ClrdbgAdapterProject)&quot; -c $(Configuration) -nodeReuse:false -p:SelfContained=false -p:OutputPath=&quot;$(ClrdbgAdapterOutput)/&quot;"
           StandardOutputImportance="low"
           EnvironmentVariables="MSBUILD_EXE_PATH=;MSBUILDDISABLENODEREUSE=1" />
 
@@ -44,6 +46,65 @@
 
     <Copy SourceFiles="@(ClrdbgAdapterFiles)"
           DestinationFiles="@(ClrdbgAdapterFiles->'$(OutDir)clrdbg/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!--
+    Fetches the remote CoreCLR debugging libraries and puts them beside whatever needs them, as
+    remote-coreclr/remote-host/<rid>/ and remote-coreclr/remote-target/<platform>/<rid>/ - the layout
+    the release zip carries, which is also the one the adapter reads. Debugging a MAUI app takes one
+    of each: the target library goes inside the app and the adapter loads the host library to talk
+    to it.
+
+    Downloaded once per version into the repository's own obj/, shared by every project and every
+    configuration, and checked against the pinned hash before it is unpacked. Set
+    NeedsRemoteCoreclrLibraries in a project to opt into this.
+  -->
+  <PropertyGroup>
+    <RemoteCoreclrLibrariesCache>$(MSBuildThisFileDirectory)obj/remote-coreclr/$(RemoteCoreclrLibrariesVersion)</RemoteCoreclrLibrariesCache>
+    <RemoteCoreclrLibrariesFiles>$(RemoteCoreclrLibrariesCache)/files</RemoteCoreclrLibrariesFiles>
+  </PropertyGroup>
+
+  <Target Name="FetchRemoteCoreclrLibraries" Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
+    <PropertyGroup>
+      <_RemoteCoreclrLibrariesZip>$(RemoteCoreclrLibrariesCache)/RemoteCoreClrLibraries.zip</_RemoteCoreclrLibrariesZip>
+      <!-- Written last, so an interrupted download or unpack is redone rather than half-used -->
+      <_RemoteCoreclrLibrariesStamp>$(RemoteCoreclrLibrariesCache)/unpacked.stamp</_RemoteCoreclrLibrariesStamp>
+    </PropertyGroup>
+
+    <DownloadFile Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+                  SourceUrl="$(RemoteCoreclrLibrariesUrl)"
+                  DestinationFolder="$(RemoteCoreclrLibrariesCache)"
+                  DestinationFileName="RemoteCoreClrLibraries.zip"
+                  Retries="3" />
+
+    <VerifyFileHash Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+                    File="$(_RemoteCoreclrLibrariesZip)"
+                    Algorithm="SHA256"
+                    Hash="$(RemoteCoreclrLibrariesSha256)" />
+
+    <RemoveDir Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Directories="$(RemoteCoreclrLibrariesFiles)" />
+
+    <Unzip Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
+           SourceFiles="$(_RemoteCoreclrLibrariesZip)"
+           DestinationFolder="$(RemoteCoreclrLibrariesFiles)" />
+
+    <Touch Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Files="$(_RemoteCoreclrLibrariesStamp)" AlwaysCreate="true" />
+
+    <Error Condition="!Exists('$(RemoteCoreclrLibrariesFiles)/remote-host') OR !Exists('$(RemoteCoreclrLibrariesFiles)/remote-target')"
+           Text="$(RemoteCoreclrLibrariesUrl) unpacked without remote-host/ and remote-target/ into $(RemoteCoreclrLibrariesFiles). Delete $(RemoteCoreclrLibrariesCache) and build again." />
+  </Target>
+
+  <Target Name="CopyRemoteCoreclrLibraries"
+          BeforeTargets="Build"
+          DependsOnTargets="FetchRemoteCoreclrLibraries"
+          Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
+    <ItemGroup>
+      <RemoteCoreclrLibraryFiles Include="$(RemoteCoreclrLibrariesFiles)/**/*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(RemoteCoreclrLibraryFiles)"
+          DestinationFiles="@(RemoteCoreclrLibraryFiles->'$(OutDir)remote-coreclr/%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

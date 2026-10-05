@@ -85,20 +85,16 @@ public sealed class MobileTools
         "Build a .NET MAUI project for a device so that it can be debugged, which an ordinary " +
         "'dotnet build' does not produce: the app is built against CoreCLR rather than Mono and " +
         "carries the remote debugging library inside it. Pass the project's .csproj and a device " +
-        "id from list_mobile_devices. Needs the remote CoreCLR debugger libraries, which are part " +
-        "of Visual Studio and are not shipped with this server - set SHARPDBG_VSDBG_LIBRARIES to " +
-        "the directory holding VsdbgRemoteCoreclrHost and VsdbgRemoteCoreclrTarget, or pass it as " +
-        "vsdbg_libraries_path. Then call launch_mobile_app.")]
+        "id from list_mobile_devices. Then call launch_mobile_app.")]
     public string BuildMobileApp(
         string project_path,
         string device_id,
         string configuration = "Debug",
-        string? target_framework = null,
-        string? vsdbg_libraries_path = null)
+        string? target_framework = null)
     {
         try
         {
-            var plan = Plan(project_path, device_id, configuration, target_framework, vsdbg_libraries_path);
+            var plan = Plan(project_path, device_id, configuration, target_framework);
             var result = MobileBuild.Build(plan, TimeSpan.FromSeconds(_configuration.BuildTimeoutSeconds));
 
             if (!result.Success)
@@ -153,13 +149,12 @@ public sealed class MobileTools
         string device_id,
         string configuration = "Debug",
         string? target_framework = null,
-        string? vsdbg_libraries_path = null,
         bool uninstall_app = false,
         int? session_id = null)
     {
         try
         {
-            var plan = Plan(project_path, device_id, configuration, target_framework, vsdbg_libraries_path);
+            var plan = Plan(project_path, device_id, configuration, target_framework);
 
             if (!ProgramExists(plan.Program))
             {
@@ -208,8 +203,7 @@ public sealed class MobileTools
         string projectPath,
         string deviceId,
         string configuration,
-        string? targetFramework,
-        string? vsdbgLibrariesPath)
+        string? targetFramework)
     {
         if (string.IsNullOrWhiteSpace(configuration))
             throw new ArgumentException("Configuration cannot be empty", nameof(configuration));
@@ -220,7 +214,7 @@ public sealed class MobileTools
             throw new PlatformNotSupportedException(
                 $"{device.Platform} apps can only be built and debugged on macOS.");
 
-        var libraries = VsdbgLibraries.Resolve(_configuration, vsdbgLibrariesPath);
+        var libraries = RemoteCoreclrLibraries.Resolve(_configuration);
 
         return MobileLaunchPlan.Create(
             projectPath,

@@ -324,18 +324,19 @@ so `build_mobile_app` refuses them and says which version would work.
 
 **It has to carry the remote debugging library.** Debugging a runtime on a phone takes a native
 library inside the app, which opens the connection the debugger attaches through, and a matching one
-on this side. Both belong to Visual Studio's debugger and cannot be redistributed, so they are not in
-this package - you point the server at a copy on your machine, laid out as it is distributed:
+on this side. Both are open source, part of [clrdbg](https://github.com/JaneySprings/clrdbg), and ship
+in this package from the clrdbg release the debugger is built from, so there is nothing to install
+or set up:
 
 ```
-<some directory>/
-  VsdbgRemoteCoreclrHost/     osx-arm64/, win-x64/, linux-x64/ …
-  VsdbgRemoteCoreclrTarget/   android/, ios/, maccatalyst/ …
+remote-coreclr/
+  remote-host/     osx-arm64/, osx-x64/, win-x64/, win-arm64/, linux-x64/, linux-arm64/
+  remote-target/   android/, ios/, maccatalyst/
 ```
 
-Set `SHARPDBG_VSDBG_LIBRARIES` to that directory, or pass it to either tool as
-`vsdbg_libraries_path`. `SHARPDBG_REMOTE_CORECLR_HOST` and `SHARPDBG_REMOTE_CORECLR_TARGET` name the
-two halves separately for a machine that does not keep them together.
+To use a copy built yourself instead - one with tracing compiled in, say - point
+`SHARPDBG_REMOTE_CORECLR_HOST` at a `remote-host` directory, `SHARPDBG_REMOTE_CORECLR_TARGET` at a
+`remote-target` one, or both. Either half left unset comes from the bundled copy.
 
 Then the session looks like this:
 
@@ -415,9 +416,8 @@ Set these as environment variables in your client's configuration:
 | `SHARPDBG_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
 | `SHARPDBG_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
 | `SHARPDBG_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |
-| `SHARPDBG_VSDBG_LIBRARIES` | Directory holding `VsdbgRemoteCoreclrHost` and `VsdbgRemoteCoreclrTarget`, needed to debug a MAUI app. See above | unset |
-| `SHARPDBG_REMOTE_CORECLR_HOST` | The host half on its own, when the two are not kept together | unset |
-| `SHARPDBG_REMOTE_CORECLR_TARGET` | The target half on its own | unset |
+| `SHARPDBG_REMOTE_CORECLR_HOST` | A `remote-host` directory to use instead of the bundled one, for debugging a MAUI app. See above | bundled |
+| `SHARPDBG_REMOTE_CORECLR_TARGET` | A `remote-target` directory to use instead of the bundled one | bundled |
 | `SHARPDBG_MOBILE_START_TIMEOUT_SECONDS` | Bounds `start_program` for a mobile app, which boots the emulator, installs and launches | `600` |
 | `SHARPDBG_BUILD_TIMEOUT_SECONDS` | Bounds `build_mobile_app` | `900` |
 

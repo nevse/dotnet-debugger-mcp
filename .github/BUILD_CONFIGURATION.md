@@ -156,6 +156,25 @@ dotnet build -p:ClrdbgSourcePath=/path/to/clrdbg
 under `tools/net10.0/any/clrdbg/`, beside the server that starts it. The native DbgShim assets under
 `runtimes/` cover every supported platform, so a single package works everywhere.
 
+## The Remote CoreCLR Libraries
+
+Debugging a MAUI app takes two native libraries besides the adapter: a target library built into the
+app, and a host library the adapter loads to talk to it. They are part of clrdbg too, but are not
+built here - the host half is NativeAOT for six runtime identifiers and the target half needs Xcode
+and the Android NDK. The build takes them from the `RemoteCoreClrLibraries.zip` asset of a clrdbg
+release instead.
+
+**Directory.Build.props** pins the release with `RemoteCoreclrLibrariesVersion`,
+`RemoteCoreclrLibrariesUrl` and `RemoteCoreclrLibrariesSha256`. Keep the version at the release the
+submodule is at, and update all three when the submodule moves to a new release.
+
+**Directory.Build.targets** defines `FetchRemoteCoreclrLibraries`, which downloads the zip once per
+version into `obj/remote-coreclr/<version>/` at the repository root, checks its hash and unpacks it,
+and `CopyRemoteCoreclrLibraries`, which copies it to `$(OutDir)remote-coreclr/` before `Build` in every
+project that sets `NeedsRemoteCoreclrLibraries` - the server and the test project. The first build
+therefore needs network access to github.com. **SharpDbg.MCP.csproj** defines
+`PackRemoteCoreclrLibraries`, which puts them in the package under `tools/net10.0/any/remote-coreclr/`.
+
 ## Build Commands
 
 ```bash

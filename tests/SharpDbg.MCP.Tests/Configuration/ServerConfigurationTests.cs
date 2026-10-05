@@ -23,7 +23,6 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("SHARPDBG_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_JUST_MY_CODE", null);
-        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", null);
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -42,7 +41,6 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("SHARPDBG_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("SHARPDBG_JUST_MY_CODE", null);
-        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", null);
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("SHARPDBG_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -64,7 +62,6 @@ public class ServerConfigurationTests
         Assert.AreEqual(2000, config.BreakpointBindTimeoutMs);
         Assert.IsFalse(config.EnableDiagnostics);
         Assert.IsTrue(config.JustMyCode);
-        Assert.IsNull(config.VsdbgLibrariesDirectory);
         Assert.IsNull(config.RemoteCoreclrHostDirectory);
         Assert.IsNull(config.RemoteCoreclrTargetDirectory);
         Assert.AreEqual(600, config.MobileStartTimeoutSeconds);
@@ -79,13 +76,11 @@ public class ServerConfigurationTests
     [TestMethod]
     public void LoadFromEnvironment_MobileLibraryPaths_AreReadUnchecked()
     {
-        Environment.SetEnvironmentVariable("SHARPDBG_VSDBG_LIBRARIES", "/nowhere/Remote");
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_HOST", "/nowhere/Host");
         Environment.SetEnvironmentVariable("SHARPDBG_REMOTE_CORECLR_TARGET", "/nowhere/Target");
 
         var config = ServerConfiguration.LoadFromEnvironment();
 
-        Assert.AreEqual("/nowhere/Remote", config.VsdbgLibrariesDirectory);
         Assert.AreEqual("/nowhere/Host", config.RemoteCoreclrHostDirectory);
         Assert.AreEqual("/nowhere/Target", config.RemoteCoreclrTargetDirectory);
         Assert.IsNull(config.Validate());
