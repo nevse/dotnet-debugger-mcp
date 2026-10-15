@@ -111,7 +111,8 @@ public class RemoteCoreclrLibrariesTests
     public void Resolve_ConfiguredHalfHoldsVisualStudioDebugger_IsRefused(string file)
     {
         var target = Directory.CreateDirectory(Path.Combine(_root, "vs-target")).FullName;
-        var path = Path.Combine(target, file);
+        // GetFullPath turns the rows' '/' into '\' on Windows, which is how the refusal names the file
+        var path = Path.GetFullPath(Path.Combine(target, file));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, string.Empty);
 
