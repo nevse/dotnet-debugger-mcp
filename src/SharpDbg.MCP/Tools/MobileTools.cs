@@ -85,7 +85,8 @@ public sealed class MobileTools
         "Build a .NET MAUI project for a device so that it can be debugged, which an ordinary " +
         "'dotnet build' does not produce: the app is built against CoreCLR rather than Mono and " +
         "carries the remote debugging library inside it. Pass the project's .csproj and a device " +
-        "id from list_mobile_devices. Then call launch_mobile_app.")]
+        "id from list_mobile_devices. Then call launch_mobile_app. Only the Debug configuration is " +
+        "accepted, since the debugging library must never be built into a shippable app.")]
     public string BuildMobileApp(
         string project_path,
         string device_id,
@@ -140,7 +141,7 @@ public sealed class MobileTools
         "Prepare a built .NET MAUI app for debugging on a device without starting it yet, the way " +
         "launch_program does for a desktop program: set breakpoints now - they will be in place " +
         "before the app's first line runs - and then call start_program. Build it with " +
-        "build_mobile_app first, with the same project, device and configuration. start_program is " +
+        "build_mobile_app first, with the same project and device. start_program is " +
         "where the time goes: it boots the emulator if it is cold, installs the app and launches " +
         "it, which is minutes rather than seconds. Everything after that - breakpoints, stepping, " +
         "variables, expressions - works exactly as it does for a local process.")]
@@ -160,7 +161,7 @@ public sealed class MobileTools
             {
                 throw new InvalidOperationException(
                     $"There is no app at {plan.Program}. Build it first with build_mobile_app, "
-                    + "passing the same project, device and configuration - an app built any other "
+                    + "passing the same project and device - an app built any other "
                     + "way runs on Mono and carries no debugging library, and cannot be attached to.");
             }
 
@@ -205,9 +206,6 @@ public sealed class MobileTools
         string configuration,
         string? targetFramework)
     {
-        if (string.IsNullOrWhiteSpace(configuration))
-            throw new ArgumentException("Configuration cannot be empty", nameof(configuration));
-
         var device = _devices.Resolve(deviceId);
 
         if (device.Platform is MobilePlatforms.IOS or MobilePlatforms.MacCatalyst && !OperatingSystem.IsMacOS())
