@@ -168,6 +168,12 @@ release instead.
 `RemoteCoreclrLibrariesUrl` and `RemoteCoreclrLibrariesSha256`. Keep the version at the release the
 submodule is at, and update all three when the submodule moves to a new release.
 
+clrdbg can also drive Visual Studio's remote debugger, and switches to it when either directory holds
+a file with `vsdbg` in its name (`MobileDebugAgent` in clrdbg). This server refuses such a directory
+before the launch reaches clrdbg (`RemoteCoreclrLibraries.Resolve`), so that path stays unreachable.
+The refusal copies clrdbg's rule, so **when the submodule moves, compare the two** and follow any
+change to how clrdbg recognises Microsoft's libraries.
+
 **Directory.Build.targets** defines `FetchRemoteCoreclrLibraries`, which downloads the zip once per
 version into `obj/remote-coreclr/<version>/` at the repository root, checks its hash and unpacks it,
 and `CopyRemoteCoreclrLibraries`, which copies it to `$(OutDir)remote-coreclr/` before `Build` in every
