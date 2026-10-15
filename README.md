@@ -338,6 +338,9 @@ To use a copy built yourself instead - one with tracing compiled in, say - point
 `SHARPDBG_REMOTE_CORECLR_HOST` at a `remote-host` directory, `SHARPDBG_REMOTE_CORECLR_TARGET` at a
 `remote-target` one, or both. Either half left unset comes from the bundled copy.
 
+Visual Studio's own remote debugger libraries (`vsdbg*`) are not used, wherever they come from: a
+directory holding a file with `vsdbg` in its name is refused, bundled or configured.
+
 Then the session looks like this:
 
 ```

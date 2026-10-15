@@ -99,6 +99,67 @@ public class RemoteCoreclrLibrariesTests
     }
 
     /// <summary>
+    /// clrdbg switches to Visual Studio's remote debugger when it finds a file with "vsdbg" in its
+    /// name anywhere below either directory, in any case. Each of these is a name that rule matches,
+    /// at a depth it reaches, so the server must refuse it before clrdbg ever sees the directory.
+    /// </summary>
+    [TestMethod]
+    [DataRow("libvsdbgremotecoreclrtarget.so")]
+    [DataRow("android/arm64-v8a/libvsdbgremotecoreclrtarget.so")]
+    [DataRow("osx-arm64/libremotemscordbihost.dylib.VSDBG")]
+    [DataRow("win-x64/VsDbg.dll")]
+    public void Resolve_ConfiguredHalfHoldsVisualStudioDebugger_IsRefused(string file)
+    {
+        var target = Directory.CreateDirectory(Path.Combine(_root, "vs-target")).FullName;
+        // GetFullPath turns the rows' '/' into '\' on Windows, which is how the refusal names the file
+        var path = Path.GetFullPath(Path.Combine(target, file));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, string.Empty);
+
+        var configuration = new ServerConfiguration { RemoteCoreclrTargetDirectory = target };
+
+        var error = Assert.ThrowsExactly<InvalidOperationException>(
+            () => RemoteCoreclrLibraries.Resolve(configuration, _root));
+
+        StringAssert.Contains(error.Message, path);
+    }
+
+    /// <summary>
+    /// The bundled copy is checked too, so a package that somehow carried Microsoft's libraries would
+    /// fail here rather than be used
+    /// </summary>
+    [TestMethod]
+    public void Resolve_BundledCopyHoldsVisualStudioDebugger_IsRefused()
+    {
+        var path = Path.Combine(_root, "remote-host", "osx-arm64", "vsdbg");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, string.Empty);
+
+        var error = Assert.ThrowsExactly<InvalidOperationException>(
+            () => RemoteCoreclrLibraries.Resolve(new ServerConfiguration(), _root));
+
+        StringAssert.Contains(error.Message, path);
+    }
+
+    /// <summary>
+    /// Only a file name counts, as in clrdbg: a directory merely called that, somewhere above or
+    /// below, is not Visual Studio's debugger and must not stop a locally built copy from working
+    /// </summary>
+    [TestMethod]
+    public void Resolve_DirectoryNamedVsdbg_IsNotRefused()
+    {
+        var target = Directory.CreateDirectory(Path.Combine(_root, "vsdbg-experiments", "target")).FullName;
+        Directory.CreateDirectory(Path.Combine(target, "vsdbg"));
+        File.WriteAllText(Path.Combine(target, "libremotecoreclrtarget.so"), string.Empty);
+
+        var configuration = new ServerConfiguration { RemoteCoreclrTargetDirectory = target };
+
+        var libraries = RemoteCoreclrLibraries.Resolve(configuration, _root);
+
+        Assert.AreEqual(target, libraries.TargetDirectory);
+    }
+
+    /// <summary>
     /// The build downloads the libraries and puts them beside the server. Checked against the real
     /// output rather than a stand-in, since a build that silently skipped them would otherwise only
     /// show up as a failed mobile launch.

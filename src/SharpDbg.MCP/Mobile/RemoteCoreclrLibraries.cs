@@ -13,6 +13,10 @@ namespace SharpDbg.MCP.Mobile;
 ///
 /// Either half can still be pointed elsewhere, for a copy built locally - with tracing compiled in,
 /// say. The two are overridden separately because they are built separately.
+///
+/// Wherever a half comes from, it must not hold Visual Studio's own remote debugger. clrdbg can
+/// still drive that one - it switches to it when it sees one - but it is Microsoft's, licensed for
+/// Visual Studio's products, and this server keeps that path unreachable rather than rely on it.
 /// </summary>
 public sealed record RemoteCoreclrLibraries(string HostDirectory, string TargetDirectory)
 {
@@ -52,11 +56,34 @@ public sealed record RemoteCoreclrLibraries(string HostDirectory, string TargetD
 
         var bundled = bundledDirectory ?? BundledDirectory;
 
-        return new RemoteCoreclrLibraries(
-            Configured(configuration.RemoteCoreclrHostDirectory, "SHARPDBG_REMOTE_CORECLR_HOST")
-                ?? Bundled(bundled, HostFolder),
-            Configured(configuration.RemoteCoreclrTargetDirectory, "SHARPDBG_REMOTE_CORECLR_TARGET")
-                ?? Bundled(bundled, TargetFolder));
+        var host = Configured(configuration.RemoteCoreclrHostDirectory, "SHARPDBG_REMOTE_CORECLR_HOST")
+            ?? Bundled(bundled, HostFolder);
+        var target = Configured(configuration.RemoteCoreclrTargetDirectory, "SHARPDBG_REMOTE_CORECLR_TARGET")
+            ?? Bundled(bundled, TargetFolder);
+
+        RefuseVisualStudioDebugger(host);
+        RefuseVisualStudioDebugger(target);
+
+        return new RemoteCoreclrLibraries(host, target);
+    }
+
+    /// <summary>
+    /// Refuses a directory clrdbg would take for Visual Studio's remote debugger. The rule is
+    /// clrdbg's own, copied from MobileDebugAgent: any file anywhere below it with "vsdbg" in its
+    /// name, in any case. Checking less than clrdbg does would leave the path open, so when the
+    /// submodule moves, this has to be compared with that rule again.
+    /// </summary>
+    private static void RefuseVisualStudioDebugger(string directory)
+    {
+        var found = Directory
+            .EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+            .FirstOrDefault(it => Path.GetFileName(it).Contains("vsdbg", StringComparison.OrdinalIgnoreCase));
+
+        if (found != null)
+            throw new InvalidOperationException(
+                $"{directory} holds Visual Studio's remote debugger ({found}), which this server does "
+                + "not use. Use the remote-host/ and remote-target/ of a clrdbg release's "
+                + "RemoteCoreClrLibraries.zip instead.");
     }
 
     private static string? Configured(string? path, string what)
