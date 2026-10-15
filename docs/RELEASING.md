@@ -42,16 +42,19 @@ if a publish is ever refused for no other apparent reason.
 
 1. Decide the version. The tag carries a leading `v`; the package version is the tag without it, so
    `v0.1.0` publishes `0.1.0`.
-2. Tag and push:
+2. Bump the version every install command in `README.md` pins, and commit it to `main`. The `package`
+   job stops the release if `README.md` pins anything else, because it cannot commit the bump itself.
+   `docs/nuget-readme.md` needs nothing: it holds `@VERSION@`, which the job stamps.
+3. Tag and push:
 
    ```bash
    git tag v0.1.0
    git push origin v0.1.0
    ```
 
-3. Create the GitHub Release for that tag. **`ci.yml` publishes on the release, not on the tag**, so
+4. Create the GitHub Release for that tag. **`ci.yml` publishes on the release, not on the tag**, so
    a pushed tag alone publishes nothing.
-4. Watch `ci.yml`. `Package` runs after the unit and integration jobs pass and does the NuGet push;
+5. Watch `ci.yml`. `Package` runs after the unit and integration jobs pass and does the NuGet push;
    `MCP Registry` runs after it and spends most of its time waiting for nuget.org to finish
    validating that push.
 

@@ -61,7 +61,7 @@ works everywhere. There is nothing to clone or build.
 **Claude Code**, for the current project:
 
 ```bash
-claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --yes
+claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version 0.5.0 --yes
 ```
 
 Add `--scope user` to make it available in every project, or `--scope project` to write a `.mcp.json`
@@ -75,28 +75,33 @@ that is committed and shared with your team.
   "mcpServers": {
     "dotnet-debugger": {
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--yes"]
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.5.0", "--yes"]
     }
   }
 }
 ```
 
-`dnx DotnetDebugger.Mcp --yes` is the shorter equivalent, and the form NuGet.org suggests. Prefer
-`dotnet tool exec` in a client launched from a desktop environment rather than from a shell: `dnx`
-lives in the SDK directory, which such a client often does not have on its `PATH`, while `dotnet`
-reliably is.
+`dnx DotnetDebugger.Mcp --version 0.5.0 --yes` is the shorter equivalent, and the form NuGet.org
+suggests. Prefer `dotnet tool exec` in a client launched from a desktop environment rather than from a
+shell: `dnx` lives in the SDK directory, which such a client often does not have on its `PATH`, while
+`dotnet` reliably is.
 
 A client only connects its MCP servers when a session starts, so restart it after changing the
 configuration. To confirm the server is there, run `claude mcp list` or ask the client to list .NET
 processes.
 
-### Pinning a version
+### Why the version is pinned
 
-Installing the tool once avoids the resolution step on every start and keeps the version fixed until
-you change it:
+Every command here names a version. Without `--version`, `dotnet tool exec` resolves the package on
+each start, so a newly published release would run on the next session without anyone having chosen
+it. A debugger can read and change everything in the process it attaches to, so which build of it runs
+should be a decision rather than a side effect. Change the version in the command to upgrade; the
+latest is on [nuget.org](https://www.nuget.org/packages/DotnetDebugger.Mcp).
+
+Installing the tool once instead avoids the resolution step on every start:
 
 ```bash
-dotnet tool install -g DotnetDebugger.Mcp
+dotnet tool install -g DotnetDebugger.Mcp --version 0.5.0
 ```
 
 The command is then `dotnet-debugger-mcp`, with no arguments. This needs `~/.dotnet/tools` on your
@@ -117,10 +122,11 @@ the new package, after which the unpinned command used it too:
 dotnet tool exec DotnetDebugger.Mcp --version 0.1.1 --yes
 ```
 
-Installing the tool avoids the question entirely, because then upgrading is explicit:
+With the version pinned, upgrading is changing it in the command, and the question does not arise.
+An installed tool is upgraded explicitly too:
 
 ```bash
-dotnet tool update -g DotnetDebugger.Mcp
+dotnet tool update -g DotnetDebugger.Mcp --version <new version>
 ```
 
 To see which version is actually running, ask the client to list this server's tools, or read the
@@ -457,7 +463,7 @@ To see what the server is doing, set `SHARPDBG_LOG_LEVEL=Trace` and
 `SHARPDBG_ENABLE_DIAGNOSTICS=true`, or run it directly and watch stderr:
 
 ```bash
-dotnet tool exec DotnetDebugger.Mcp --yes
+dotnet tool exec DotnetDebugger.Mcp --version 0.5.0 --yes
 ```
 
 ## Development

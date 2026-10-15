@@ -153,4 +153,54 @@ public class MobileLaunchPlanTests
 
         Assert.ThrowsExactly<InvalidOperationException>(() => _ = device.DebugTarget);
     }
+
+    [TestMethod]
+    [DataRow("Debug")]
+    [DataRow("debug")]
+    [DataRow("DEBUG")]
+    public void ValidateConfiguration_Debug_IsAcceptedInAnyCase(string configuration)
+    {
+        Assert.AreEqual("Debug", MobileLaunchPlan.ValidateConfiguration(configuration));
+    }
+
+    /// <summary>
+    /// The build puts the remote debugging library inside the app, so anything a release pipeline
+    /// could ship is refused - including names that are not "Release", since a project's shipping
+    /// configuration can be called anything
+    /// </summary>
+    [TestMethod]
+    [DataRow("Release")]
+    [DataRow("AppStore")]
+    [DataRow("Debug-Staging")]
+    public void ValidateConfiguration_AnythingButDebug_IsRefused(string configuration)
+    {
+        var error = Assert.ThrowsExactly<ArgumentException>(
+            () => MobileLaunchPlan.ValidateConfiguration(configuration));
+
+        Assert.AreEqual("configuration", error.ParamName);
+        StringAssert.Contains(error.Message, configuration);
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    public void ValidateConfiguration_Empty_IsRefused(string configuration)
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => MobileLaunchPlan.ValidateConfiguration(configuration));
+    }
+
+    /// <summary>
+    /// The refusal comes before MSBuild is asked anything about the project, so a Release request
+    /// never evaluates it at all - here the project does not even exist
+    /// </summary>
+    [TestMethod]
+    public void Create_ReleaseConfiguration_IsRefusedBeforeTheProjectIsRead()
+    {
+        var device = new MobileDevice("Pixel", "Pixel", MobilePlatforms.Android, null, null, true, true);
+
+        var error = Assert.ThrowsExactly<ArgumentException>(() => MobileLaunchPlan.Create(
+            "/nowhere/App.csproj", device, "Release", "net10.0-android", Libraries, TimeSpan.FromSeconds(1)));
+
+        Assert.AreEqual("configuration", error.ParamName);
+    }
 }

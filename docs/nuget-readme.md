@@ -20,7 +20,7 @@ The .NET 10 SDK. It provides `dnx`, and the server itself targets `net10.0`.
 **Claude Code:**
 
 ```bash
-claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --yes
+claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version @VERSION@ --yes
 ```
 
 **VS Code, Claude Desktop, or any client taking JSON:**
@@ -30,7 +30,7 @@ claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --yes
   "mcpServers": {
     "dotnet-debugger": {
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--yes"]
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "@VERSION@", "--yes"]
     }
   }
 }
@@ -39,14 +39,17 @@ claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --yes
 There is no path to fill in and nothing to clone. The package carries the debugger and its native
 shims for every platform, so the same configuration works on Windows, macOS and Linux.
 
-`dnx DotnetDebugger.Mcp --yes` is the equivalent shorter form. Prefer `dotnet tool exec` in a client
-launched from a desktop environment: `dnx` lives in the SDK directory, which such a client often does
-not have on its `PATH`, while `dotnet` reliably is.
+`dnx DotnetDebugger.Mcp --version @VERSION@ --yes` is the equivalent shorter form. Prefer
+`dotnet tool exec` in a client launched from a desktop environment: `dnx` lives in the SDK directory,
+which such a client often does not have on its `PATH`, while `dotnet` reliably is.
 
-To pin a version and skip the resolution step, install it once and call the command directly:
+The version is pinned on purpose: without `--version` each start resolves the package again, and a
+new release would run without anyone having chosen it. Change it in the command to upgrade.
+
+To skip the resolution step, install it once and call the command directly:
 
 ```bash
-dotnet tool install -g DotnetDebugger.Mcp
+dotnet tool install -g DotnetDebugger.Mcp --version @VERSION@
 ```
 
 This needs `~/.dotnet/tools` on your `PATH`, which is the reason it is not the default suggestion.

@@ -57,6 +57,7 @@ public sealed record MobileLaunchPlan(
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(libraries);
 
+        configuration = ValidateConfiguration(configuration);
         var project = ValidateProject(projectPath);
         var framework = targetFramework ?? SelectTargetFramework(project, device.Platform, timeout);
 
@@ -88,6 +89,27 @@ public sealed record MobileLaunchPlan(
             program,
             assets,
             libraries);
+    }
+
+    /// <summary>
+    /// Only Debug is built. The build puts the remote debugging library inside the app and keeps the
+    /// diagnostic components, which is a way into the app for anyone who can reach its port, so an
+    /// app built this way must never be one a release pipeline would ship. An allow-list rather than
+    /// refusing Release: a project's shipping configuration can be called anything.
+    /// </summary>
+    public static string ValidateConfiguration(string configuration)
+    {
+        if (string.IsNullOrWhiteSpace(configuration))
+            throw new ArgumentException("Configuration cannot be empty", nameof(configuration));
+
+        if (!string.Equals(configuration, "Debug", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"Only the Debug configuration can be built for debugging, not {configuration}: the "
+                + "build puts the remote debugging library inside the app, which must never reach a "
+                + "configuration that could be shipped.",
+                nameof(configuration));
+
+        return "Debug";
     }
 
     private static string ValidateProject(string projectPath)
