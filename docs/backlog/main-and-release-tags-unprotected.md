@@ -9,5 +9,6 @@ tags `v*` are not protected either. So a push to `main` needs no review, history
 and a release tag can be moved or recreated to point at another commit before or after publishing.
 
 Fix: enable the ruleset for `main` (pull request required, no force push, no deletion, required status
-checks) and add a tag ruleset for `v*` (no update, no deletion, creation restricted to maintainers).
+checks, and code scanning results required, so a PR adding a high or critical CodeQL alert cannot
+merge) and add a tag ruleset for `v*` (no update, no deletion, creation restricted to maintainers).
 Repository settings only, nothing in the tree; record the setup in docs/RELEASING.md.
