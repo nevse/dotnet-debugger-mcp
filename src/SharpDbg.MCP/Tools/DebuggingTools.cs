@@ -137,7 +137,10 @@ public sealed class DebuggingTools
         "Launch a .NET program under the debugger without running it yet. This is the only way to " +
         "debug what happens at startup: breakpoints set now are in place before the first line " +
         "executes. Pass the built program - the .dll or the executable next to it - not a project " +
-        "file. Then set breakpoints and call start_program to run it. The program's output is " +
+        "file. Only .NET apps are launched - a .dll with its .runtimeconfig.json, or the apphost " +
+        "beside them - and environment variables that load other code into the program " +
+        "(DOTNET_STARTUP_HOOKS, profilers, DOTNET_ROOT, LD_PRELOAD, DYLD_*) are refused. " +
+        "Then set breakpoints and call start_program to run it. The program's output is " +
         "captured rather than printed, and read with get_program_output. A program launched this " +
         "way is killed when the session is detached or closed, though the debugger does not always " +
         "confirm it - both report program_may_be_running when it did not.")]
@@ -152,6 +155,7 @@ public sealed class DebuggingTools
         {
             var program = InputValidation.ValidateProgramPath(program_path);
             InputValidation.ValidateWorkingDirectory(working_directory);
+            InputValidation.ValidateLaunchEnvironment(environment);
 
             var session = _sessionManager.AcquireForDebuggee(session_id);
             session.Launch(program, args, working_directory, environment).GetAwaiter().GetResult();

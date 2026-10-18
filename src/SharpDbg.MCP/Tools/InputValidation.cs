@@ -59,7 +59,103 @@ public static class InputValidation
         if (!File.Exists(fullPath))
             throw new ArgumentException($"There is no file at {fullPath}", nameof(programPath));
 
+        RequireDotNetProgram(fullPath);
+
         return fullPath;
+    }
+
+    /// <summary>
+    /// Only a .NET program is launched. The debugger starts anything it is given - a .dll through
+    /// the dotnet muxer, anything else directly - so without this, launch_program would run /bin/sh
+    /// or cmd.exe with whatever arguments it was handed, a shell for anyone allowed this tool but
+    /// not a shell.
+    ///
+    /// What marks a .NET program is its build output: an app's .dll always has its
+    /// .runtimeconfig.json beside it, and an apphost - framework-dependent or self-contained - has
+    /// both of those beside it under its own name. A single-file publish has neither, and is not
+    /// debuggable anyway. This is not a sandbox: an agent able to write files can still build or
+    /// assemble something that passes. It stops a ready-made executable from being run.
+    /// </summary>
+    private static void RequireDotNetProgram(string fullPath)
+    {
+        var directory = Path.GetDirectoryName(fullPath)!;
+        var isAssembly = Path.GetExtension(fullPath).Equals(".dll", StringComparison.OrdinalIgnoreCase);
+        // App.dll and App.exe both name the app App; an apphost on macOS and Linux has no extension
+        var name = isAssembly || OperatingSystem.IsWindows()
+            ? Path.GetFileNameWithoutExtension(fullPath)
+            : Path.GetFileName(fullPath);
+
+        var assembly = Path.Combine(directory, name + ".dll");
+        var runtimeConfig = Path.Combine(directory, name + ".runtimeconfig.json");
+
+        if (File.Exists(assembly) && File.Exists(runtimeConfig))
+            return;
+
+        throw new ArgumentException(
+            isAssembly
+                ? $"{fullPath} is not a runnable .NET app: there is no {Path.GetFileName(runtimeConfig)} "
+                    + "beside it, so it is a library or not build output. Pass the app's own .dll."
+                : $"{fullPath} is not a .NET app: only .NET programs are launched, and a .NET app's "
+                    + $"executable has {Path.GetFileName(assembly)} and {Path.GetFileName(runtimeConfig)} "
+                    + "beside it. A single-file publish has neither and cannot be debugged; build "
+                    + "without PublishSingleFile and pass the output.",
+            "programPath");
+    }
+
+    /// <summary>
+    /// Variables that load code of somebody else's choosing into the program before or alongside
+    /// it: a startup hook or extra dependencies through the host, a profiler through the runtime,
+    /// a different runtime through DOTNET_ROOT, a preloaded library through the dynamic loader.
+    /// Any one of them turns launching a legitimate program into running arbitrary native code, so
+    /// the program-path check would be decorative without refusing them.
+    /// </summary>
+    private static readonly string[] RefusedEnvironmentVariables =
+    [
+        "DOTNET_STARTUP_HOOKS",
+        "DOTNET_ADDITIONAL_DEPS",
+        "DOTNET_SHARED_STORE",
+        "CORECLR_ENABLE_PROFILING",
+        "COR_ENABLE_PROFILING",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT"
+    ];
+
+    /// <summary>
+    /// Prefixes refused for the same reason: the 32- and 64-bit and per-architecture forms of the
+    /// profiler and runtime-location variables, and every DYLD_ variable, which macOS reads to
+    /// insert or redirect libraries.
+    /// </summary>
+    private static readonly string[] RefusedEnvironmentPrefixes =
+    [
+        "CORECLR_PROFILER",
+        "COR_PROFILER",
+        "DOTNET_ROOT",
+        "DYLD_"
+    ];
+
+    /// <summary>
+    /// Refuses environment variables that inject code into the launched program. Compared without
+    /// case, because Windows treats them that way and a variable spelled differently must not slip
+    /// past on the platform where it would still take effect.
+    /// </summary>
+    public static void ValidateLaunchEnvironment(IReadOnlyDictionary<string, string>? environment)
+    {
+        if (environment is null)
+            return;
+
+        var refused = environment.Keys
+            .Where(name =>
+                RefusedEnvironmentVariables.Contains(name, StringComparer.OrdinalIgnoreCase)
+                || RefusedEnvironmentPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        if (refused.Count > 0)
+            throw new ArgumentException(
+                $"These environment variables are refused, because they load other code into the "
+                + $"program: {string.Join(", ", refused)}.",
+                nameof(environment));
     }
 
     public static void ValidateWorkingDirectory(string? workingDirectory)

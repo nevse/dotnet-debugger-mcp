@@ -288,23 +288,183 @@ public class InputValidationTests
         catch (ArgumentException) { }
     }
 
-    [TestMethod]
-    public void ValidateProgramPath_ExistingFile_ReturnsAnAbsolutePath()
+    /// <summary>
+    /// A directory laid out as build output: the files named are created empty, since only their
+    /// presence is checked
+    /// </summary>
+    private static string BuildOutput(params string[] files)
     {
-        var file = Path.Combine(Path.GetTempPath(), $"launch-{Guid.NewGuid():N}.dll");
-        File.WriteAllText(file, string.Empty);
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"launch-{Guid.NewGuid():N}")).FullName;
+
+        foreach (var file in files)
+            File.WriteAllText(Path.Combine(directory, file), string.Empty);
+
+        return directory;
+    }
+
+    private static string AppHostName => OperatingSystem.IsWindows() ? "App.exe" : "App";
+
+    [TestMethod]
+    public void ValidateProgramPath_AppAssembly_ReturnsAnAbsolutePath()
+    {
+        var directory = BuildOutput("App.dll", "App.runtimeconfig.json");
 
         try
         {
-            var validated = InputValidation.ValidateProgramPath(file);
+            var validated = InputValidation.ValidateProgramPath(Path.Combine(directory, "App.dll"));
 
             Assert.IsTrue(Path.IsPathRooted(validated));
             Assert.IsTrue(File.Exists(validated));
         }
         finally
         {
-            File.Delete(file);
+            Directory.Delete(directory, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// The apphost of a framework-dependent build and of a self-contained publish both sit beside
+    /// the app's .dll and .runtimeconfig.json, which is what makes them a .NET program
+    /// </summary>
+    [TestMethod]
+    public void ValidateProgramPath_AppHost_IsAccepted()
+    {
+        var directory = BuildOutput(AppHostName, "App.dll", "App.runtimeconfig.json");
+
+        try
+        {
+            var program = Path.Combine(directory, AppHostName);
+
+            Assert.AreEqual(program, InputValidation.ValidateProgramPath(program));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A library has no runtime configuration and cannot be run, and a .dll that is not build
+    /// output at all is refused the same way
+    /// </summary>
+    [TestMethod]
+    public void ValidateProgramPath_AssemblyWithoutRuntimeConfig_IsRefused()
+    {
+        var directory = BuildOutput("Library.dll");
+
+        try
+        {
+            var error = Assert.Throws<ArgumentException>(
+                () => InputValidation.ValidateProgramPath(Path.Combine(directory, "Library.dll")));
+
+            StringAssert.Contains(error.Message, "Library.runtimeconfig.json");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The reason for the check: an executable that is not a .NET app - a shell, curl, anything -
+    /// would otherwise be started by the debugger with whatever arguments it was given
+    /// </summary>
+    [TestMethod]
+    public void ValidateProgramPath_NativeExecutable_IsRefused()
+    {
+        var shell = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.SystemDirectory, "cmd.exe")
+            : "/bin/sh";
+
+        var error = Assert.Throws<ArgumentException>(() => InputValidation.ValidateProgramPath(shell));
+
+        StringAssert.Contains(error.Message, "only .NET programs are launched");
+    }
+
+    /// <summary>
+    /// A single-file publish leaves only the apphost, with the app packed inside it. It cannot be
+    /// debugged, so refusing it up front says so rather than failing inside the debugger
+    /// </summary>
+    [TestMethod]
+    public void ValidateProgramPath_AppHostAlone_IsRefusedAndNamesSingleFile()
+    {
+        var directory = BuildOutput(AppHostName);
+
+        try
+        {
+            var error = Assert.Throws<ArgumentException>(
+                () => InputValidation.ValidateProgramPath(Path.Combine(directory, AppHostName)));
+
+            StringAssert.Contains(error.Message, "single-file");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Copying a native executable next to a .dll is not enough: the files beside it must carry the
+    /// executable's own name
+    /// </summary>
+    [TestMethod]
+    public void ValidateProgramPath_ExecutableBesideSomeoneElsesApp_IsRefused()
+    {
+        var other = OperatingSystem.IsWindows() ? "tool.exe" : "tool";
+        var directory = BuildOutput(other, "App.dll", "App.runtimeconfig.json");
+
+        try
+        {
+            Assert.Throws<ArgumentException>(
+                () => InputValidation.ValidateProgramPath(Path.Combine(directory, other)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("DOTNET_STARTUP_HOOKS")]
+    [DataRow("DOTNET_ADDITIONAL_DEPS")]
+    [DataRow("DOTNET_SHARED_STORE")]
+    [DataRow("CORECLR_ENABLE_PROFILING")]
+    [DataRow("CORECLR_PROFILER")]
+    [DataRow("CORECLR_PROFILER_PATH_64")]
+    [DataRow("COR_PROFILER_PATH")]
+    [DataRow("DOTNET_ROOT")]
+    [DataRow("DOTNET_ROOT_X64")]
+    [DataRow("LD_PRELOAD")]
+    [DataRow("LD_LIBRARY_PATH")]
+    [DataRow("DYLD_INSERT_LIBRARIES")]
+    [DataRow("dotnet_startup_hooks")]
+    public void ValidateLaunchEnvironment_CodeInjectingVariable_IsRefused(string name)
+    {
+        var environment = new Dictionary<string, string> { ["ASPNETCORE_ENVIRONMENT"] = "Development", [name] = "x" };
+
+        var error = Assert.Throws<ArgumentException>(() => InputValidation.ValidateLaunchEnvironment(environment));
+
+        StringAssert.Contains(error.Message, name);
+        Assert.IsFalse(error.Message.Contains("ASPNETCORE_ENVIRONMENT"), error.Message);
+    }
+
+    /// <summary>
+    /// What a program is ordinarily configured with passes, including variables that only share a
+    /// word with a refused one
+    /// </summary>
+    [TestMethod]
+    public void ValidateLaunchEnvironment_OrdinaryVariables_Pass()
+    {
+        InputValidation.ValidateLaunchEnvironment(null);
+        InputValidation.ValidateLaunchEnvironment(new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Development",
+            ["ASPNETCORE_URLS"] = "http://localhost:5000",
+            ["DOTNET_ENVIRONMENT"] = "Staging",
+            ["ConnectionStrings__Default"] = "Server=.",
+            ["PATH"] = "/usr/bin"
+        });
     }
 
     [TestMethod]
