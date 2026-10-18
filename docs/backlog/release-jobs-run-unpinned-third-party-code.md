@@ -15,5 +15,5 @@ key from trusted publishing and to publish to the MCP registry. Yet both run cod
   runs it with no version and no checksum.
 
 Fix: pin every action to a full commit SHA with the tag in a comment (Dependabot keeps them current),
-pin mcp-publisher to a version and verify its SHA-256. Also declare a top-level `permissions:
-contents: read`, so jobs other than the two that need more do not inherit the repository default.
+pin mcp-publisher to a version and verify its SHA-256. The default `CodeQL` query suite does not flag
+the movable tags, so its clean results say nothing about this.

@@ -8,6 +8,12 @@ on:
   release:
     types: [ published ]
 
+# Read-only by default, so the build, test and lint jobs - which run third-party actions and the
+# code under review - get a token that cannot write to the repository. package and registry declare
+# the extra permissions they need themselves.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build and Test
