@@ -277,4 +277,41 @@ public class DebuggingToolsTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    /// <summary>
+    /// A launch profile comes with the repository, so a startup hook in it is refused the same way
+    /// one passed by the caller is, rather than handed to the debugger to apply after the check
+    /// </summary>
+    [TestMethod]
+    public void LaunchProgram_ProfileWithInjectingEnvironment_IsRefusedWithoutOpeningASession()
+    {
+        var tools = Tools();
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"launch-{Guid.NewGuid():N}")).FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "App.dll"), string.Empty);
+            File.WriteAllText(Path.Combine(directory, "App.runtimeconfig.json"), string.Empty);
+            Directory.CreateDirectory(Path.Combine(directory, "Properties"));
+            File.WriteAllText(Path.Combine(directory, "Properties", "launchSettings.json"), """
+                { "profiles": { "http": {
+                    "commandName": "Project",
+                    "environmentVariables": { "DOTNET_STARTUP_HOOKS": "/tmp/hook.dll" } } } }
+                """);
+
+            StringAssert.Contains(
+                Error(tools.LaunchProgram(Path.Combine(directory, "App.dll"), project_path: directory)),
+                "DOTNET_STARTUP_HOOKS");
+            StringAssert.Contains(
+                Error(tools.LaunchProgram(Path.Combine(directory, "App.dll"), launch_profile: "http")),
+                "needs project_path");
+
+            Assert.AreEqual(0, Parse(tools.ListSessions()).GetProperty("count").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

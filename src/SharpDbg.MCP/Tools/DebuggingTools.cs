@@ -143,28 +143,50 @@ public sealed class DebuggingTools
         "Then set breakpoints and call start_program to run it. The program's output is " +
         "captured rather than printed, and read with get_program_output. A program launched this " +
         "way is killed when the session is detached or closed, though the debugger does not always " +
-        "confirm it - both report program_may_be_running when it did not.")]
+        "confirm it - both report program_may_be_running when it did not. " +
+        "To run it the way a launchSettings.json profile would, pass project_path - the project " +
+        "file or its directory - and optionally launch_profile; without a name the 'https' profile " +
+        "is used, else the first with commandName 'Project'. The profile supplies arguments, working " +
+        "directory and environment, applicationUrl becoming ASPNETCORE_URLS; args and " +
+        "working_directory given here replace the profile's, and environment is added over it.")]
     public string LaunchProgram(
         string program_path,
         string[]? args = null,
         string? working_directory = null,
         Dictionary<string, string>? environment = null,
-        int? session_id = null)
+        int? session_id = null,
+        string? project_path = null,
+        string? launch_profile = null)
     {
         try
         {
             var program = InputValidation.ValidateProgramPath(program_path);
-            InputValidation.ValidateWorkingDirectory(working_directory);
-            InputValidation.ValidateLaunchEnvironment(environment);
+
+            if (launch_profile is not null && project_path is null)
+                throw new ArgumentException(
+                    "launch_profile needs project_path, the project whose launchSettings.json holds it",
+                    nameof(launch_profile));
+
+            var profile = project_path is null ? null : LaunchSettings.Read(project_path, launch_profile);
+
+            IReadOnlyList<string>? arguments = args ?? profile?.Arguments;
+            var workingDirectory = working_directory ?? profile?.WorkingDirectory;
+            var launchEnvironment = MergeEnvironment(profile?.Environment, environment);
+
+            InputValidation.ValidateWorkingDirectory(workingDirectory);
+            // The profile's variables are checked as well as the caller's: it comes with the
+            // repository, so it is no more trusted than the agent's own input
+            InputValidation.ValidateLaunchEnvironment(launchEnvironment);
 
             var session = _sessionManager.AcquireForDebuggee(session_id);
-            session.Launch(program, args, working_directory, environment).GetAwaiter().GetResult();
+            session.Launch(program, arguments, workingDirectory, launchEnvironment).GetAwaiter().GetResult();
 
             var response = new
             {
                 success = true,
                 session_id = session.SessionId,
                 program,
+                launch_profile = profile?.Name,
                 started = false,
                 message = "Launched but not started. Set breakpoints now - they will be in place " +
                     "before the program runs - then call start_program."
@@ -176,6 +198,24 @@ public sealed class DebuggingTools
         {
             return DebuggerErrors.ErrorResponse(ex);
         }
+    }
+
+    /// <summary>
+    /// The profile's variables with the caller's on top, so a caller can change one of them without
+    /// restating the rest
+    /// </summary>
+    private static Dictionary<string, string>? MergeEnvironment(
+        IReadOnlyDictionary<string, string>? profile,
+        Dictionary<string, string>? environment)
+    {
+        if (profile is null)
+            return environment;
+
+        var merged = new Dictionary<string, string>(profile);
+        foreach (var (name, value) in environment ?? [])
+            merged[name] = value;
+
+        return merged;
     }
 
     [McpServerTool, Description(

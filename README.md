@@ -314,6 +314,15 @@ launching a legitimate app into running something else: `DOTNET_STARTUP_HOOKS`,
 (`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`),
 `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
 
+A `launchSettings.json` profile is read by this server, not handed to the debugger. Pass `project_path`
+(the project file or its directory) and optionally `launch_profile`. With no name given, the `https`
+profile is used, or else the first profile with `commandName: "Project"`. Its `commandLineArgs`,
+`workingDirectory` and `environmentVariables` become the launch's arguments, working directory and
+environment, and `applicationUrl` becomes `ASPNETCORE_URLS`. These are then checked the same way as the
+parameters above. Only `Project` profiles are accepted, because an `Executable` profile names a program
+of its own. The profile comes with the repository, so it gets no more trust than the agent does: a
+startup hook set in it is refused like any other.
+
 This is not a sandbox. A .NET app can do anything its user can, and an agent able to write and build
 code can launch what it built. What it stops is `launch_program` serving as a shell for a client that
 allows this server's tools but not a shell.
