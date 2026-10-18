@@ -267,8 +267,10 @@ jobs:
     # Trusted publishing: nuget.org validates the workflow's OIDC token against a policy naming this
     # owner, repository and workflow file, then issues an API key that lives an hour. No long-lived
     # secret is stored here. The key is requested immediately before the push on purpose.
+    # The two third-party actions in this job are pinned to a commit, since this job holds the token
+    # that publishes the package; dependabot.yml moves the pins forward
     - name: Exchange the OIDC token for a NuGet key
-      uses: NuGet/login@v1
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
       id: nuget-login
       with:
         user: ${{ secrets.NUGET_USER }}
@@ -281,7 +283,7 @@ jobs:
         --skip-duplicate
 
     - name: Attach the package to the release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         files: ./artifacts/*.nupkg
       env:

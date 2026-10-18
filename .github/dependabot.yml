@@ -1,0 +1,12 @@
+# Keeps the actions in the workflows current. The third-party ones are pinned to a commit SHA, with
+# the release in a comment, so a moved tag cannot change what runs with the publishing token; this is
+# what moves the pins forward, as a reviewed pull request rather than silently.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
