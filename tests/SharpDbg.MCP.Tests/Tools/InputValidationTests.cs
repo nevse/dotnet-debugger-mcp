@@ -433,6 +433,8 @@ public class InputValidationTests
     [DataRow("CORECLR_PROFILER")]
     [DataRow("CORECLR_PROFILER_PATH_64")]
     [DataRow("COR_PROFILER_PATH")]
+    [DataRow("ASPNETCORE_HOSTINGSTARTUPASSEMBLIES")]
+    [DataRow("DOTNET_HOSTINGSTARTUPASSEMBLIES")]
     [DataRow("DOTNET_ROOT")]
     [DataRow("DOTNET_ROOT_X64")]
     [DataRow("LD_PRELOAD")]

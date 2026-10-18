@@ -311,8 +311,9 @@ debugged anyway.
 Environment variables that load other code into the program are refused too, since any of them turns
 launching a legitimate app into running something else: `DOTNET_STARTUP_HOOKS`,
 `DOTNET_ADDITIONAL_DEPS`, `DOTNET_SHARED_STORE`, `DOTNET_ROOT*`, the CoreCLR profiler variables
-(`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`),
-`LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
+(`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`), ASP.NET
+Core's hosting startup assemblies (`ASPNETCORE_HOSTINGSTARTUPASSEMBLIES`,
+`DOTNET_HOSTINGSTARTUPASSEMBLIES`), `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
 
 A `launchSettings.json` profile is read by this server, not handed to the debugger. Pass `project_path`
 (the project file or its directory) and optionally `launch_profile`. With no name given, the `https`

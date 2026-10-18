@@ -105,7 +105,9 @@ public static class InputValidation
     /// <summary>
     /// Variables that load code of somebody else's choosing into the program before or alongside
     /// it: a startup hook or extra dependencies through the host, a profiler through the runtime,
-    /// a different runtime through DOTNET_ROOT, a preloaded library through the dynamic loader.
+    /// a different runtime through DOTNET_ROOT, a preloaded library through the dynamic loader, a
+    /// hosting startup assembly through ASP.NET Core, which reads its host settings under both the
+    /// ASPNETCORE_ and the DOTNET_ prefix.
     /// Any one of them turns launching a legitimate program into running arbitrary native code, so
     /// the program-path check would be decorative without refusing them.
     /// </summary>
@@ -116,6 +118,8 @@ public static class InputValidation
         "DOTNET_SHARED_STORE",
         "CORECLR_ENABLE_PROFILING",
         "COR_ENABLE_PROFILING",
+        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES",
+        "DOTNET_HOSTINGSTARTUPASSEMBLIES",
         "LD_PRELOAD",
         "LD_LIBRARY_PATH",
         "LD_AUDIT"

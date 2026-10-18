@@ -139,7 +139,8 @@ public sealed class DebuggingTools
         "executes. Pass the built program - the .dll or the executable next to it - not a project " +
         "file. Only .NET apps are launched - a .dll with its .runtimeconfig.json, or the apphost " +
         "beside them - and environment variables that load other code into the program " +
-        "(DOTNET_STARTUP_HOOKS, profilers, DOTNET_ROOT, LD_PRELOAD, DYLD_*) are refused. " +
+        "(DOTNET_STARTUP_HOOKS, profilers, hosting startup assemblies, DOTNET_ROOT, LD_PRELOAD, DYLD_*) " +
+        "are refused. " +
         "Then set breakpoints and call start_program to run it. The program's output is " +
         "captured rather than printed, and read with get_program_output. A program launched this " +
         "way is killed when the session is detached or closed, though the debugger does not always " +
