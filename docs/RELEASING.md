@@ -62,31 +62,43 @@ with no protection at all.
 
 CodeQL runs as default setup (Settings → Code security), with the extended query suite.
 
+**Auto-merge** (Settings → General → Allow auto-merge) is on, which `scripts/release.sh` uses for the
+README pull request.
+
 ## Cutting a release
 
-1. Decide the version. The tag carries a leading `v`; the package version is the tag without it, so
-   `v0.1.0` publishes `0.1.0`.
-2. Bump the version every install command in `README.md` pins, in a pull request, and merge it. The
-   `package` job stops the release if `README.md` pins anything else, because it cannot commit the
-   bump itself. `docs/nuget-readme.md` needs nothing: it holds `@VERSION@`, which the job stamps.
-3. Tag and push:
+1. Decide the version and write the release notes to a file. The tag carries a leading `v`; the
+   package version is the tag without it, so `v0.1.0` publishes `0.1.0`.
+2. From an up-to-date `main` with no uncommitted changes, run:
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   ./scripts/release.sh 0.1.0 notes.md
    ```
 
-4. Create the GitHub Release for that tag. **`ci.yml` publishes on the release, not on the tag**, so
-   a pushed tag alone publishes nothing.
-5. Watch `ci.yml`. `Package` waits for the unit and integration jobs, then for approval: open the
-   run and **Review deployments → release → Approve**. It then packs, attests the package's build
-   provenance and does the NuGet push; `MCP Registry` runs after it and spends most of its time
-   waiting for nuget.org to finish validating that push.
-6. Check the published package's provenance:
+   It opens a pull request pinning `0.1.0` in every `README.md` install command, with auto-merge on,
+   waits for the required checks to pass and the pull request to merge - a few minutes - then puts an
+   annotated `v0.1.0` tag on that merge commit, pushes it, and creates the GitHub Release with the
+   notes. **`ci.yml` publishes on the release, not on the tag.** It runs as you through `gh`: the
+   pull request's checks and the release's workflow only start for something a person created, not
+   for what a workflow creates with its own token.
+3. Watch `ci.yml`. `Package` waits for the unit and integration jobs, then for approval: open the
+   run and **Review deployments → release → Approve**. It then checks that `README.md` pins this
+   version, packs, attests the package's build provenance and does the NuGet push; `MCP Registry`
+   runs after it and spends most of its time waiting for nuget.org to finish validating that push.
+4. Check the published package's provenance:
 
    ```bash
    gh attestation verify DotnetDebugger.Mcp.0.1.0.nupkg --repo nevse/dotnet-debugger-mcp
    ```
+
+Doing it by hand is the same steps: a pull request running `python3 scripts/readme-version.py bump
+0.1.0`, then, once it has merged, `git tag -a v0.1.0 -m "Version 0.1.0"` on the merge commit, `git push
+origin v0.1.0` and the GitHub Release. The `package` job runs `readme-version.py check` and stops a
+release whose version `README.md` does not pin.
+
+If the script stops partway, nothing after that point happened. A pull request that did not merge
+leaves no tag; one that merged leaves `README.md` ahead of the release, and the tag and release can be
+finished by hand as above.
 
 The push uses `--skip-duplicate`, so re-running a release that already published is harmless.
 
