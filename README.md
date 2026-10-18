@@ -285,6 +285,24 @@ What the setting changes is which modules get their symbols looked for at all. W
 only assemblies built by you are searched; with it off, every module is, so a step does surface inside
 a dependency you happen to have symbols for. That is what to turn it off for.
 
+### What `launch_program` will run
+
+The debugger starts whatever it is given, so `launch_program` only accepts a .NET app: a `.dll` with
+its `.runtimeconfig.json` beside it, or an apphost with the app's `.dll` and `.runtimeconfig.json`
+beside it under the same name. That covers a normal build and a self-contained publish. A shell, a
+system tool or any other native executable is refused, as is a single-file publish, which cannot be
+debugged anyway.
+
+Environment variables that load other code into the program are refused too, since any of them turns
+launching a legitimate app into running something else: `DOTNET_STARTUP_HOOKS`,
+`DOTNET_ADDITIONAL_DEPS`, `DOTNET_SHARED_STORE`, `DOTNET_ROOT*`, the CoreCLR profiler variables
+(`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`),
+`LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
+
+This is not a sandbox. A .NET app can do anything its user can, and an agent able to write and build
+code can launch what it built. What it stops is `launch_program` serving as a shell for a client that
+allows this server's tools but not a shell.
+
 ### Attaching to other users' processes
 
 A debugger can read and change everything in the process it attaches to, so by default this server

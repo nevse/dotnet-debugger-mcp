@@ -242,4 +242,39 @@ public class DebuggingToolsTests
 
         Assert.AreEqual("ICorDebugEval", root.GetProperty("interface_name").GetString());
     }
+
+    /// <summary>
+    /// The refusals happen before a session is taken, so neither a shell nor a startup hook gets as
+    /// far as the debugger, and no slot is left behind by the attempt
+    /// </summary>
+    [TestMethod]
+    public void LaunchProgram_ShellOrInjectingEnvironment_IsRefusedWithoutOpeningASession()
+    {
+        var tools = Tools();
+        var directory = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"launch-{Guid.NewGuid():N}")).FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "App.dll"), string.Empty);
+            File.WriteAllText(Path.Combine(directory, "App.runtimeconfig.json"), string.Empty);
+
+            var shell = OperatingSystem.IsWindows()
+                ? Path.Combine(Environment.SystemDirectory, "cmd.exe")
+                : "/bin/sh";
+
+            StringAssert.Contains(Error(tools.LaunchProgram(shell, ["-c", "true"])), "only .NET programs");
+            StringAssert.Contains(
+                Error(tools.LaunchProgram(
+                    Path.Combine(directory, "App.dll"),
+                    environment: new Dictionary<string, string> { ["DOTNET_STARTUP_HOOKS"] = "/tmp/hook.dll" })),
+                "DOTNET_STARTUP_HOOKS");
+
+            Assert.AreEqual(0, Parse(tools.ListSessions()).GetProperty("count").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }
