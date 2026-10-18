@@ -1,15 +1,14 @@
 ---
 worth: yes
-where: .github/workflows/ci.yml:160
 added: 2026-10-16
 ---
-# publishing a release needs nobody's approval
+# nuget.org's trusted-publishing policy is not bound to the release environment
 
-Creating a GitHub release starts `package`, which pushes to nuget.org with no further step. Anyone who
-can create a release - or a stolen token that can - publishes a package every user of the tool will
-run. The nuget.org trusted-publishing policy names the repository and `ci.yml` but no environment
-(docs/RELEASING.md), so it cannot tell an approved run from any other run of that workflow.
+The `package` job now runs in the `release` GitHub environment, which waits for a maintainer's
+approval and only runs for `v*` tags. But the nuget.org trusted-publishing policy still has
+Environment empty, so nuget.org would issue a key to any run of `ci.yml` in this repository, approved
+or not. The approval gate holds only as long as nobody edits the workflow to drop `environment:`.
 
-Fix: run `package` and `registry` in a GitHub Environment (`release`) with a required reviewer, and
-name that environment in the nuget.org trusted-publishing policy, so a key is only issued to a run
-someone approved. Update the policy table in docs/RELEASING.md.
+Fix, on nuget.org only: **your username → Trusted Publishing → the policy for this repository →
+Environment: `release`**. Nothing in the tree changes; docs/RELEASING.md already lists that value.
+Delete this item once it is set.

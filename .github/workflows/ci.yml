@@ -169,14 +169,20 @@ jobs:
     needs: [build-and-test, integration-tests]
     if: github.event_name == 'release'
 
+    # Waits for a maintainer to approve the run before any step starts, and only runs for a v* tag.
+    # nuget.org's trusted-publishing policy names this environment, so a run that was not approved
+    # here - a release created with a stolen token, say - gets no key. See docs/RELEASING.md.
+    environment: release
+
     outputs:
       version: ${{ steps.version.outputs.value }}
 
     # Naming any permission drops the defaults for this job, so contents has to be restated for the
     # release upload below
     permissions:
-      id-token: write   # let GitHub mint the OIDC token nuget.org trades for a short-lived key
-      contents: write   # attach the package to the release
+      id-token: write       # the OIDC token nuget.org trades for a short-lived key, and the attestation's signature
+      contents: write       # attach the package to the release
+      attestations: write   # record the build provenance of the package
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -264,8 +270,15 @@ jobs:
         -p:Version=${{ steps.version.outputs.value }}
         --output ./artifacts
 
+    # A signed statement that this workflow, at this commit, built this exact .nupkg, recorded by
+    # GitHub and checked with: gh attestation verify <nupkg> --repo nevse/dotnet-debugger-mcp
+    - name: Attest the package's build provenance
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: ./artifacts/*.nupkg
+
     # Trusted publishing: nuget.org validates the workflow's OIDC token against a policy naming this
-    # owner, repository and workflow file, then issues an API key that lives an hour. No long-lived
+    # owner, repository, workflow file and environment, then issues an API key that lives an hour. No long-lived
     # secret is stored here. The key is requested immediately before the push on purpose.
     # Every action in these workflows is pinned to a commit, with its release in a comment, so a
     # moved tag cannot change what runs - here, with the token that publishes the package.

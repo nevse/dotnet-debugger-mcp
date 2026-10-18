@@ -11,7 +11,9 @@ the build rather than shipping a package with no debugger in it.
 Nothing here holds a NuGet API key. Publishing uses
 [trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing): the
 workflow asks GitHub for an OIDC token, nuget.org validates it against a policy naming this
-repository, and issues a key that lives one hour.
+repository and the `release` environment, and issues a key that lives one hour. The `package` job runs
+in that environment, which waits for a maintainer to approve the run, so nothing reaches nuget.org that
+nobody approved.
 
 ## One-time setup on nuget.org
 
@@ -22,7 +24,7 @@ Sign in, then **your username → Trusted Publishing**, and add a policy:
 | Repository Owner | `nevse` |
 | Repository | `dotnet-debugger-mcp` |
 | Workflow File | `ci.yml` — the file name only, no `.github/workflows/` prefix |
-| Environment | leave empty; the workflow uses no GitHub environment |
+| Environment | `release` |
 
 The policy must allow **creating new package IDs**, not only new versions of existing ones.
 `DotnetDebugger.Mcp` does not exist on nuget.org until the first release, so a policy restricted to
@@ -38,13 +40,35 @@ ids that pin the policy against someone deleting the repository and recreating i
 This repository is public, so that window should not apply, but the status is visible in the same UI
 if a publish is ever refused for no other apparent reason.
 
+## One-time setup on GitHub
+
+**The `release` environment** (Settings → Environments), which the `package` job runs in:
+
+- Required reviewers: the maintainers. Self-review is allowed, since there is one maintainer.
+- Deployment branches and tags: selected only, with the tag rule `v*`. A release runs on the tag, so a
+  run from any branch is refused before approval is even asked for.
+
+Create it before any workflow names it: a job naming an environment that does not exist creates it,
+with no protection at all.
+
+**Rulesets** (Settings → Rules):
+
+- `main`, on the default branch, with no bypass: a pull request is required (no approvals, since a
+  maintainer cannot approve their own), the build, test, integration and Code Quality checks must
+  pass, CodeQL must report no new alert of high severity or above and no error, and force pushes and
+  deletion are blocked. Everything reaches `main` through a pull request, the README bump included.
+- `release tags`, on `refs/tags/v*`: tags cannot be moved or deleted once pushed, so a released
+  version always names the commit it was built from.
+
+CodeQL runs as default setup (Settings → Code security), with the extended query suite.
+
 ## Cutting a release
 
 1. Decide the version. The tag carries a leading `v`; the package version is the tag without it, so
    `v0.1.0` publishes `0.1.0`.
-2. Bump the version every install command in `README.md` pins, and commit it to `main`. The `package`
-   job stops the release if `README.md` pins anything else, because it cannot commit the bump itself.
-   `docs/nuget-readme.md` needs nothing: it holds `@VERSION@`, which the job stamps.
+2. Bump the version every install command in `README.md` pins, in a pull request, and merge it. The
+   `package` job stops the release if `README.md` pins anything else, because it cannot commit the
+   bump itself. `docs/nuget-readme.md` needs nothing: it holds `@VERSION@`, which the job stamps.
 3. Tag and push:
 
    ```bash
@@ -54,9 +78,15 @@ if a publish is ever refused for no other apparent reason.
 
 4. Create the GitHub Release for that tag. **`ci.yml` publishes on the release, not on the tag**, so
    a pushed tag alone publishes nothing.
-5. Watch `ci.yml`. `Package` runs after the unit and integration jobs pass and does the NuGet push;
-   `MCP Registry` runs after it and spends most of its time waiting for nuget.org to finish
-   validating that push.
+5. Watch `ci.yml`. `Package` waits for the unit and integration jobs, then for approval: open the
+   run and **Review deployments → release → Approve**. It then packs, attests the package's build
+   provenance and does the NuGet push; `MCP Registry` runs after it and spends most of its time
+   waiting for nuget.org to finish validating that push.
+6. Check the published package's provenance:
+
+   ```bash
+   gh attestation verify DotnetDebugger.Mcp.0.1.0.nupkg --repo nevse/dotnet-debugger-mcp
+   ```
 
 The push uses `--skip-duplicate`, so re-running a release that already published is harmless.
 

@@ -108,6 +108,16 @@ The command is then `dotnet-debugger-mcp`, with no arguments. This needs `~/.dot
 `PATH`, which is why it is not the default suggestion: a client that cannot find the command fails
 the same way a wrong path does.
 
+### Checking where a package came from
+
+Releases after 0.6.1 carry a build provenance attestation: a statement, signed through GitHub, that
+this repository's release workflow built that exact package from a given commit. To check one before
+mirroring or installing it, download the `.nupkg` from nuget.org and run:
+
+```bash
+gh attestation verify DotnetDebugger.Mcp.<version>.nupkg --repo nevse/dotnet-debugger-mcp
+```
+
 ### Upgrading
 
 `dotnet tool exec` can keep running a version it has already downloaded, even after a newer one is
