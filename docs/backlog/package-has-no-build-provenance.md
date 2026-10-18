@@ -12,4 +12,4 @@ of this repository rather than pushed from somewhere else with the same key.
 Fix: after `Pack`, run `actions/attest-build-provenance` over `./artifacts/*.nupkg` (needs
 `attestations: write`), and document `gh attestation verify <nupkg> --repo nevse/dotnet-debugger-mcp`
 in the README for anyone mirroring the package. The bundled clrdbg libraries need the same upstream:
-see clrdbg-remote-libraries-zip-built-by-hand.
+see clrdbg-releases-unattested-and-recreated.

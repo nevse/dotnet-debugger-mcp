@@ -28,7 +28,7 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     # Through the environment rather than interpolated into the script, so the input cannot inject.
     - name: Resolve the version
@@ -91,13 +91,23 @@ jobs:
 
     # Always the latest binary on purpose: an older one fails against the current registry with
     # "invalid audience", which reads like an authentication problem rather than a stale tool.
+    # Pinned, and checked against the checksums the release publishes in registry_1.8.1_checksums.txt,
+    # since this binary runs with the token that publishes the registry entry. Bump the version and
+    # both checksums together.
     - name: Install mcp-publisher
+      env:
+        MCP_PUBLISHER_VERSION: v1.8.1
       run: |
-        os=$(uname -s | tr '[:upper:]' '[:lower:]')
-        arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        case "$(uname -m)" in
+          x86_64)  arch=amd64; sha256=a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc ;;
+          aarch64) arch=arm64; sha256=8dd75a6cf6845688b5d4e46df58d3ca26d5c8d233bb0626606e1db82c5e883e4 ;;
+          *) echo "::error::No pinned mcp-publisher for $(uname -m)"; exit 1 ;;
+        esac
 
-        curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" \
-          | tar xz mcp-publisher
+        curl -fsSLo mcp-publisher.tar.gz \
+          "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_${arch}.tar.gz"
+        echo "${sha256}  mcp-publisher.tar.gz" | sha256sum -c -
+        tar xzf mcp-publisher.tar.gz mcp-publisher
 
     - name: Authenticate
       run: ./mcp-publisher login github-oidc

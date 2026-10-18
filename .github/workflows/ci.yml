@@ -24,14 +24,14 @@ jobs:
         dotnet-version: ['10.0.x']
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The debugger is a submodule and the build compiles it, so a shallow checkout of this
       # repository alone cannot build anything
       with:
         submodules: true
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: ${{ matrix.dotnet-version }}
 
@@ -47,7 +47,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: test-results-${{ matrix.os }}
         path: '**/test-results.trx'
@@ -63,14 +63,14 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The debugger is a submodule and the build compiles it, so a shallow checkout of this
       # repository alone cannot build anything
       with:
         submodules: true
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
 
@@ -114,14 +114,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The debugger is a submodule and the build compiles it, so a shallow checkout of this
       # repository alone cannot build anything
       with:
         submodules: true
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
 
@@ -179,14 +179,14 @@ jobs:
       contents: write   # attach the package to the release
 
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The debugger is a submodule and the build compiles it, so a shallow checkout of this
       # repository alone cannot build anything
       with:
         submodules: true
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
 
@@ -252,7 +252,7 @@ jobs:
     # The registry job publishes this exact file, so what the registry advertises and what nuget
     # holds cannot drift apart
     - name: Keep the stamped manifest for the registry job
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: mcp-manifest
         path: src/SharpDbg.MCP/.mcp/server.json
@@ -267,8 +267,9 @@ jobs:
     # Trusted publishing: nuget.org validates the workflow's OIDC token against a policy naming this
     # owner, repository and workflow file, then issues an API key that lives an hour. No long-lived
     # secret is stored here. The key is requested immediately before the push on purpose.
-    # The two third-party actions in this job are pinned to a commit, since this job holds the token
-    # that publishes the package; dependabot.yml moves the pins forward
+    # Every action in these workflows is pinned to a commit, with its release in a comment, so a
+    # moved tag cannot change what runs - here, with the token that publishes the package.
+    # dependabot.yml moves the pins forward
     - name: Exchange the OIDC token for a NuGet key
       uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
       id: nuget-login
@@ -307,7 +308,7 @@ jobs:
 
     steps:
     # No checkout: the only file this needs is the manifest the package job stamped and shipped
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
         name: mcp-manifest
 
@@ -337,13 +338,23 @@ jobs:
 
     # Always the latest binary on purpose: an older one fails against the current registry with
     # "invalid audience", which reads like an authentication problem rather than a stale tool.
+    # Pinned, and checked against the checksums the release publishes in registry_1.8.1_checksums.txt,
+    # since this binary runs with the token that publishes the registry entry. Bump the version and
+    # both checksums together.
     - name: Install mcp-publisher
+      env:
+        MCP_PUBLISHER_VERSION: v1.8.1
       run: |
-        os=$(uname -s | tr '[:upper:]' '[:lower:]')
-        arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        case "$(uname -m)" in
+          x86_64)  arch=amd64; sha256=a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc ;;
+          aarch64) arch=arm64; sha256=8dd75a6cf6845688b5d4e46df58d3ca26d5c8d233bb0626606e1db82c5e883e4 ;;
+          *) echo "::error::No pinned mcp-publisher for $(uname -m)"; exit 1 ;;
+        esac
 
-        curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" \
-          | tar xz mcp-publisher
+        curl -fsSLo mcp-publisher.tar.gz \
+          "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_${arch}.tar.gz"
+        echo "${sha256}  mcp-publisher.tar.gz" | sha256sum -c -
+        tar xzf mcp-publisher.tar.gz mcp-publisher
 
     - name: Authenticate
       run: ./mcp-publisher login github-oidc
