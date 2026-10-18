@@ -13,7 +13,12 @@ remain, both upstream:
 - release 18.0.0 was deleted and recreated on 2026-10-17 on another commit, with every asset rebuilt
   under the same version. The SHA-256 pin in `Directory.Build.props` caught it - every clean build here
   failed until #17 followed - but anyone pinning the version alone silently got different binaries.
-  A new version (18.0.1) instead of a recreated one would avoid both.
+  It happened again on 2026-10-18, on 003212a. A new version (18.0.1) instead of a recreated one
+  would avoid both.
+
+Until that changes, each recreation is checked by hand before the pin moves: the tag's commit, the
+Build run on it that uploaded the assets, and the zip's files against that run's artifacts. Nothing
+upstream makes that check possible without trusting the run's logs.
 
 Supply-chain risk: binaries in our package that cannot be traced to their source, under a version that
 does not identify them.
