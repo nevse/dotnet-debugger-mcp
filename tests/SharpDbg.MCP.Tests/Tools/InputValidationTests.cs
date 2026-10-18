@@ -446,7 +446,7 @@ public class InputValidationTests
         var error = Assert.Throws<ArgumentException>(() => InputValidation.ValidateLaunchEnvironment(environment));
 
         StringAssert.Contains(error.Message, name);
-        Assert.IsFalse(error.Message.Contains("ASPNETCORE_ENVIRONMENT"), error.Message);
+        Assert.DoesNotContain("ASPNETCORE_ENVIRONMENT", error.Message);
     }
 
     /// <summary>
