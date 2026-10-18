@@ -332,26 +332,28 @@ jobs:
 
     # The registry proves we own the name by reading the mcp-name marker out of the package README on
     # nuget.org, so there is nothing for it to verify until nuget has finished validating the push.
-    # That took several minutes for 0.1.1.
-    - name: Wait for nuget.org to serve the package README
+    # That took several minutes for 0.1.1. The package itself is waited for too, for the attestation
+    # below: for 0.6.3 the README was served while the .nupkg still answered 404.
+    - name: Wait for nuget.org to serve the package and its README
       env:
         VERSION: ${{ needs.package.outputs.version }}
       run: |
-        url="https://api.nuget.org/v3-flatcontainer/dotnetdebugger.mcp/${VERSION}/readme"
+        base="https://api.nuget.org/v3-flatcontainer/dotnetdebugger.mcp/${VERSION}"
 
         for attempt in $(seq 1 40); do
-          code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" || echo 000)
+          readme=$(curl -sS -o /dev/null -w '%{http_code}' "$base/readme" || echo 000)
+          package=$(curl -sS -o /dev/null -w '%{http_code}' "$base/dotnetdebugger.mcp.${VERSION}.nupkg" || echo 000)
 
-          if [ "$code" = "200" ]; then
+          if [ "$readme" = "200" ] && [ "$package" = "200" ]; then
             echo "Served after $attempt attempt(s)"
             exit 0
           fi
 
-          echo "attempt $attempt: HTTP $code"
+          echo "attempt $attempt: README HTTP $readme, package HTTP $package"
           sleep 30
         done
 
-        echo "::error::$url never became available, so the registry cannot verify the package"
+        echo "::error::nuget.org never served $VERSION's package and README, so neither can be verified"
         exit 1
 
     # nuget.org adds its repository signature, .signature.p7s, to every package it accepts, so the
