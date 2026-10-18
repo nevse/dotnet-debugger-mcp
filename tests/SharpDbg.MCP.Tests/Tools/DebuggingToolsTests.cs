@@ -302,7 +302,7 @@ public class DebuggingToolsTests
 
             StringAssert.Contains(
                 Error(tools.LaunchProgram(Path.Combine(directory, "App.dll"), project_path: directory)),
-                "DOTNET_STARTUP_HOOKS");
+                "set by launch profile 'http'");
             StringAssert.Contains(
                 Error(tools.LaunchProgram(Path.Combine(directory, "App.dll"), launch_profile: "http")),
                 "needs project_path");

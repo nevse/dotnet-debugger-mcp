@@ -137,9 +137,11 @@ public static class InputValidation
     /// <summary>
     /// Refuses environment variables that inject code into the launched program. Compared without
     /// case, because Windows treats them that way and a variable spelled differently must not slip
-    /// past on the platform where it would still take effect.
+    /// past on the platform where it would still take effect. <paramref name="source"/> names where
+    /// the variables came from when it is not the caller, so a refusal points at the right place.
     /// </summary>
-    public static void ValidateLaunchEnvironment(IReadOnlyDictionary<string, string>? environment)
+    public static void ValidateLaunchEnvironment(
+        IReadOnlyDictionary<string, string>? environment, string? source = null)
     {
         if (environment is null)
             return;
@@ -153,7 +155,8 @@ public static class InputValidation
 
         if (refused.Count > 0)
             throw new ArgumentException(
-                $"These environment variables are refused, because they load other code into the "
+                $"These environment variables{(source is null ? "" : $" set by {source}")} are refused, "
+                + "because they load other code into the "
                 + $"program: {string.Join(", ", refused)}.",
                 nameof(environment));
     }

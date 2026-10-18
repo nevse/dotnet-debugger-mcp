@@ -148,7 +148,9 @@ public sealed class DebuggingTools
         "file or its directory - and optionally launch_profile; without a name the 'https' profile " +
         "is used, else the first with commandName 'Project'. The profile supplies arguments, working " +
         "directory and environment, applicationUrl becoming ASPNETCORE_URLS; args and " +
-        "working_directory given here replace the profile's, and environment is added over it.")]
+        "working_directory given here replace the profile's, and environment is added over it. " +
+        "Values are used literally - $(...) and %VAR% are not expanded - executablePath is ignored, " +
+        "and only 'Project' profiles are accepted.")]
     public string LaunchProgram(
         string program_path,
         string[]? args = null,
@@ -169,14 +171,19 @@ public sealed class DebuggingTools
 
             var profile = project_path is null ? null : LaunchSettings.Read(project_path, launch_profile);
 
-            IReadOnlyList<string>? arguments = args ?? profile?.Arguments;
-            var workingDirectory = working_directory ?? profile?.WorkingDirectory;
-            var launchEnvironment = MergeEnvironment(profile?.Environment, environment);
-
-            InputValidation.ValidateWorkingDirectory(workingDirectory);
+            InputValidation.ValidateLaunchEnvironment(environment);
             // The profile's variables are checked as well as the caller's: it comes with the
             // repository, so it is no more trusted than the agent's own input
-            InputValidation.ValidateLaunchEnvironment(launchEnvironment);
+            InputValidation.ValidateLaunchEnvironment(profile?.Environment, $"launch profile '{profile?.Name}'");
+
+            IReadOnlyList<string>? arguments = args;
+            var workingDirectory = working_directory;
+            IReadOnlyDictionary<string, string>? launchEnvironment = environment;
+
+            if (profile is not null)
+                (arguments, workingDirectory, launchEnvironment) = profile.Apply(args, working_directory, environment);
+
+            InputValidation.ValidateWorkingDirectory(workingDirectory);
 
             var session = _sessionManager.AcquireForDebuggee(session_id);
             session.Launch(program, arguments, workingDirectory, launchEnvironment).GetAwaiter().GetResult();
@@ -198,24 +205,6 @@ public sealed class DebuggingTools
         {
             return DebuggerErrors.ErrorResponse(ex);
         }
-    }
-
-    /// <summary>
-    /// The profile's variables with the caller's on top, so a caller can change one of them without
-    /// restating the rest
-    /// </summary>
-    private static Dictionary<string, string>? MergeEnvironment(
-        IReadOnlyDictionary<string, string>? profile,
-        Dictionary<string, string>? environment)
-    {
-        if (profile is null)
-            return environment;
-
-        var merged = new Dictionary<string, string>(profile);
-        foreach (var (name, value) in environment ?? [])
-            merged[name] = value;
-
-        return merged;
     }
 
     [McpServerTool, Description(

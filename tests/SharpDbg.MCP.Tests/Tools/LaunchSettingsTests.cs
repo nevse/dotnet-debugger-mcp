@@ -40,7 +40,7 @@ public sealed class LaunchSettingsTests
             }
             """);
 
-        var profile = LaunchSettings.Read(Path.Combine(_project, "App.csproj"), "http");
+        var profile = LaunchSettings.Read(Path.Combine(_project, "App.csproj"), "http")!;
 
         Assert.AreEqual("http", profile.Name);
         CollectionAssert.AreEqual(new[] { "--port", "5000", "a b" }, profile.Arguments!.ToArray());
@@ -59,7 +59,7 @@ public sealed class LaunchSettingsTests
                 "environmentVariables": { "ASPNETCORE_URLS": "http://localhost:6000" } } } }
             """);
 
-        var profile = LaunchSettings.Read(_project, "p");
+        var profile = LaunchSettings.Read(_project, "p")!;
 
         Assert.AreEqual("http://localhost:6000", profile.Environment["ASPNETCORE_URLS"]);
         Assert.IsNull(profile.Arguments);
@@ -76,7 +76,7 @@ public sealed class LaunchSettingsTests
                 "https": { "commandName": "Project" } } }
             """);
 
-        Assert.AreEqual("https", LaunchSettings.Read(_project, null).Name);
+        Assert.AreEqual("https", LaunchSettings.Read(_project, null)!.Name);
 
         WriteSettings("""
             { "profiles": {
@@ -84,7 +84,7 @@ public sealed class LaunchSettingsTests
                 "http": { "commandName": "Project" } } }
             """);
 
-        Assert.AreEqual("http", LaunchSettings.Read(_project, null).Name);
+        Assert.AreEqual("http", LaunchSettings.Read(_project, null)!.Name);
     }
 
     [TestMethod]
@@ -111,19 +111,70 @@ public sealed class LaunchSettingsTests
         var ex = Assert.ThrowsExactly<ArgumentException>(() => LaunchSettings.Read(_project, "tool"));
 
         StringAssert.Contains(ex.Message, "Executable");
+        StringAssert.Contains(ex.Message, "Its profiles: tool");
+    }
+
+    /// <summary>
+    /// A project without the file has no profile to use, which is only a mistake when one was named
+    /// </summary>
+    [TestMethod]
+    public void Read_NoSettingsFile_IsAnErrorOnlyWhenAProfileWasNamed()
+    {
+        Assert.IsNull(LaunchSettings.Read(_project, null));
+
+        var missing = Assert.ThrowsExactly<ArgumentException>(() => LaunchSettings.Read(_project, "http"));
+        StringAssert.Contains(missing.Message, "launchSettings.json");
     }
 
     [TestMethod]
-    public void Read_NoSettingsFileOrNotAProject_SaysWhichPath()
+    public void Read_NotAProject_SaysWhichPath()
     {
-        var missing = Assert.ThrowsExactly<ArgumentException>(() => LaunchSettings.Read(_project, null));
-        StringAssert.Contains(missing.Message, "launchSettings.json");
 
         var dll = Path.Combine(_project, "App.dll");
         File.WriteAllText(dll, string.Empty);
 
         var notProject = Assert.ThrowsExactly<ArgumentException>(() => LaunchSettings.Read(dll, null));
         StringAssert.Contains(notProject.Message, "is not a project");
+    }
+
+    [TestMethod]
+    public void Apply_CallerArgumentsAndDirectoryReplace_CallerVariablesGoOnTop()
+    {
+        var profile = new LaunchProfile(
+            "p",
+            ["--from-profile"],
+            Path.GetFullPath("profile-cwd", _project),
+            new Dictionary<string, string> { ["A"] = "profile", ["B"] = "profile" });
+
+        var unchanged = profile.Apply(null, null, null);
+        CollectionAssert.AreEqual(new[] { "--from-profile" }, unchanged.Arguments!.ToArray());
+        Assert.AreEqual(profile.WorkingDirectory, unchanged.WorkingDirectory);
+        Assert.AreEqual("profile", unchanged.Environment["A"]);
+
+        var callerCwd = Path.GetFullPath("caller-cwd", _project);
+        var overridden = profile.Apply(
+            ["--from-caller"], callerCwd, new Dictionary<string, string> { ["B"] = "caller", ["C"] = "caller" });
+
+        CollectionAssert.AreEqual(new[] { "--from-caller" }, overridden.Arguments!.ToArray());
+        Assert.AreEqual(callerCwd, overridden.WorkingDirectory);
+        Assert.AreEqual("profile", overridden.Environment["A"]);
+        Assert.AreEqual("caller", overridden.Environment["B"]);
+        Assert.AreEqual("caller", overridden.Environment["C"]);
+    }
+
+    /// <summary>
+    /// Values are passed literally, as the debugger passes them
+    /// </summary>
+    [TestMethod]
+    public void Read_PropertyAndVariableReferences_AreNotExpanded()
+    {
+        WriteSettings("""
+            { "profiles": { "p": {
+                "commandName": "Project",
+                "environmentVariables": { "X": "$(ProjectDir)%HOME%" } } } }
+            """);
+
+        Assert.AreEqual("$(ProjectDir)%HOME%", LaunchSettings.Read(_project, "p")!.Environment["X"]);
     }
 
     [TestMethod]

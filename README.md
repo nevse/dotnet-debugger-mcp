@@ -319,9 +319,13 @@ A `launchSettings.json` profile is read by this server, not handed to the debugg
 profile is used, or else the first profile with `commandName: "Project"`. Its `commandLineArgs`,
 `workingDirectory` and `environmentVariables` become the launch's arguments, working directory and
 environment, and `applicationUrl` becomes `ASPNETCORE_URLS`. These are then checked the same way as the
-parameters above. Only `Project` profiles are accepted, because an `Executable` profile names a program
-of its own. The profile comes with the repository, so it gets no more trust than the agent does: a
-startup hook set in it is refused like any other.
+parameters above. Arguments and a working directory passed to `launch_program` replace the profile's.
+Passed environment variables are added on top of the profile's. Only `Project` profiles are accepted,
+because an `Executable` profile names a program of its own, and `executablePath` is ignored, so the
+program is always the one passed in. Values are used literally: neither `$(...)` nor `%VAR%` is expanded.
+The profile comes with the repository, so it gets no more trust than the agent does: a startup hook set
+in it is refused like any other, and the error names the profile. A project with no `launchSettings.json`
+is launched without a profile unless one was named.
 
 This is not a sandbox. A .NET app can do anything its user can, and an agent able to write and build
 code can launch what it built. What it stops is `launch_program` serving as a shell for a client that
