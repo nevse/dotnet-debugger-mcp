@@ -25,10 +25,12 @@ Sign in, then **your username → Trusted Publishing**, and add a policy:
 | Repository | `dotnet-debugger-mcp` |
 | Workflow File | `ci.yml` — the file name only, no `.github/workflows/` prefix |
 | Environment | `release` |
+| Scopes | Push → **Push only new package versions**; unlist/relist off |
+| Packages | `DotnetDebugger.Mcp` — the exact ID, no glob |
 
-The policy must allow **creating new package IDs**, not only new versions of existing ones.
-`DotnetDebugger.Mcp` does not exist on nuget.org until the first release, so a policy restricted to
-existing packages cannot make it.
+The narrowest policy that publishes: a key it issues can push new versions of this one package and
+nothing else under the account. The very first release needed "Push new packages and package
+versions" instead, because the ID did not exist yet.
 
 Then add one repository secret, **`NUGET_USER`**: your nuget.org *profile name*, not the email you
 sign in with. It is not sensitive; it lives in a secret because that is what NuGet's own example does
@@ -85,11 +87,18 @@ README pull request.
    run and **Review deployments → release → Approve**. It then checks that `README.md` pins this
    version, packs, attests the package's build provenance and does the NuGet push; `MCP Registry`
    runs after it and spends most of its time waiting for nuget.org to finish validating that push.
-4. Check the published package's provenance:
+4. Check the published package's provenance, on the copy nuget.org serves:
 
    ```bash
+   curl -fsSLo DotnetDebugger.Mcp.0.1.0.nupkg \
+     https://api.nuget.org/v3-flatcontainer/dotnetdebugger.mcp/0.1.0/dotnetdebugger.mcp.0.1.0.nupkg
    gh attestation verify DotnetDebugger.Mcp.0.1.0.nupkg --repo nevse/dotnet-debugger-mcp
    ```
+
+   There are two attestations per release. `package` attests the `.nupkg` as built, the copy
+   attached to the GitHub Release. nuget.org then adds its repository signature, which changes the
+   file, so `registry` downloads nuget.org's copy, checks that every entry but `.signature.p7s`
+   matches the build by name, CRC and size, and attests that copy as well.
 
 Doing it by hand is the same steps: a pull request running `python3 scripts/readme-version.py bump
 0.1.0`, then, once it has merged, `git tag -a v0.1.0 -m "Version 0.1.0"` on the merge commit, `git push
