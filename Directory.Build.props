@@ -30,7 +30,7 @@
          adapter has to match. Bump all three together with the submodule. -->
     <RemoteCoreclrLibrariesVersion>18.0.0</RemoteCoreclrLibrariesVersion>
     <RemoteCoreclrLibrariesUrl>https://github.com/JaneySprings/clrdbg/releases/download/$(RemoteCoreclrLibrariesVersion)/RemoteCoreClrLibraries.zip</RemoteCoreclrLibrariesUrl>
-    <RemoteCoreclrLibrariesSha256>423fbccecbb51246e8d1d9fcf6bd40f371da4c78f401d3d300823f1b38c85aef</RemoteCoreclrLibrariesSha256>
+    <RemoteCoreclrLibrariesSha256>f74c4897456a30a4864d0ca8dfe124b5e2a7a0a92ac5a5313f7a5bded0121f2b</RemoteCoreclrLibrariesSha256>
 
     <!-- Repository and package metadata -->
     <Authors>SharpDbg MCP Contributors</Authors>
