@@ -333,6 +333,66 @@ public sealed class LaunchIntegrationTests
     }
 
     /// <summary>
+    /// The profile's variables and arguments reach the program: the variable reads back at a
+    /// breakpoint, and the exit code the arguments ask for comes back, which no launch without them
+    /// would produce
+    /// </summary>
+    [TestMethod]
+    public async Task LaunchProgram_WithALaunchProfile_RunsWithItsVariablesAndArguments()
+    {
+        const int expected = 9;
+        var line = TestPaths.FindMarkerLine("STARTUP-TARGET");
+
+        var configuration = new ServerConfiguration();
+        using var manager = new DebugSessionManager(configuration);
+        var tools = new SharpDbg.MCP.Tools.DebuggingTools(configuration, manager, new ProcessDiscovery());
+
+        var project = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"launch-profile-{Guid.NewGuid():N}")).FullName;
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(project, "Properties"));
+            File.WriteAllText(Path.Combine(project, "Properties", "launchSettings.json"), $$"""
+                { "profiles": {
+                    "plain": { "commandName": "Project" },
+                    "exit": {
+                      "commandName": "Project",
+                      "commandLineArgs": "--exit-code={{expected}}",
+                      "environmentVariables": { "SHARPDBG_PROFILE_MARKER": "from-profile" } } } }
+                """);
+
+            var launched = tools.LaunchProgram(TestPaths.TestAppAssembly, project_path: project, launch_profile: "exit");
+            StringAssert.Contains(launched, "\"launch_profile\": \"exit\"");
+
+            var session = manager.Resolve(null);
+            session.SetBreakpoint(TestPaths.TestAppSource, line);
+            session.Start();
+
+            var stopped = WaitForStop(session);
+            var frames = session.GetStackTrace(stopped.StoppedThreadId!.Value);
+            var marker = await session.EvaluateExpression(
+                "System.Environment.GetEnvironmentVariable(\"SHARPDBG_PROFILE_MARKER\")", frames[0].Id);
+
+            StringAssert.Contains(marker.Result, "from-profile");
+
+            session.Continue();
+
+            var exited = DebuggeeProcess.SpinUntil(
+                () => session.GetExecutionState().StopReason == "exited", StopTimeout);
+
+            var state = session.GetExecutionState();
+
+            Assert.IsTrue(exited, $"The program never exited. State: reason={state.StopReason}");
+            Assert.AreEqual(expected, state.ExitCode);
+        }
+        finally
+        {
+            Directory.Delete(project, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The pid the debuggee printed for itself. Since SharpDbg 0.1.14 the session knows it too, from
     /// the debugger's process event, and this is what that can be checked against - the debugger
     /// naming some process is worth nothing unless it is naming the right one.

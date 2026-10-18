@@ -311,8 +311,22 @@ debugged anyway.
 Environment variables that load other code into the program are refused too, since any of them turns
 launching a legitimate app into running something else: `DOTNET_STARTUP_HOOKS`,
 `DOTNET_ADDITIONAL_DEPS`, `DOTNET_SHARED_STORE`, `DOTNET_ROOT*`, the CoreCLR profiler variables
-(`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`),
-`LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
+(`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER*`, `COR_ENABLE_PROFILING`, `COR_PROFILER*`), ASP.NET
+Core's hosting startup assemblies (`ASPNETCORE_HOSTINGSTARTUPASSEMBLIES`,
+`DOTNET_HOSTINGSTARTUPASSEMBLIES`), `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT` and every `DYLD_*`.
+
+A `launchSettings.json` profile is read by this server, not handed to the debugger. Pass `project_path`
+(the project file or its directory) and optionally `launch_profile`. With no name given, the `https`
+profile is used, or else the first profile with `commandName: "Project"`. Its `commandLineArgs`,
+`workingDirectory` and `environmentVariables` become the launch's arguments, working directory and
+environment, and `applicationUrl` becomes `ASPNETCORE_URLS`. These are then checked the same way as the
+parameters above. Arguments and a working directory passed to `launch_program` replace the profile's.
+Passed environment variables are added on top of the profile's. Only `Project` profiles are accepted,
+because an `Executable` profile names a program of its own, and `executablePath` is ignored, so the
+program is always the one passed in. Values are used literally: neither `$(...)` nor `%VAR%` is expanded.
+The profile comes with the repository, so it gets no more trust than the agent does: a startup hook set
+in it is refused like any other, and the error names the profile. A project with no `launchSettings.json`
+is launched without a profile unless one was named.
 
 This is not a sandbox. A .NET app can do anything its user can, and an agent able to write and build
 code can launch what it built. What it stops is `launch_program` serving as a shell for a client that

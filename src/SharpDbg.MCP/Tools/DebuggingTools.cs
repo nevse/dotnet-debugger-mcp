@@ -139,32 +139,62 @@ public sealed class DebuggingTools
         "executes. Pass the built program - the .dll or the executable next to it - not a project " +
         "file. Only .NET apps are launched - a .dll with its .runtimeconfig.json, or the apphost " +
         "beside them - and environment variables that load other code into the program " +
-        "(DOTNET_STARTUP_HOOKS, profilers, DOTNET_ROOT, LD_PRELOAD, DYLD_*) are refused. " +
+        "(DOTNET_STARTUP_HOOKS, profilers, hosting startup assemblies, DOTNET_ROOT, LD_PRELOAD, DYLD_*) " +
+        "are refused. " +
         "Then set breakpoints and call start_program to run it. The program's output is " +
         "captured rather than printed, and read with get_program_output. A program launched this " +
         "way is killed when the session is detached or closed, though the debugger does not always " +
-        "confirm it - both report program_may_be_running when it did not.")]
+        "confirm it - both report program_may_be_running when it did not. " +
+        "To run it the way a launchSettings.json profile would, pass project_path - the project " +
+        "file or its directory - and optionally launch_profile; without a name the 'https' profile " +
+        "is used, else the first with commandName 'Project'. The profile supplies arguments, working " +
+        "directory and environment, applicationUrl becoming ASPNETCORE_URLS; args and " +
+        "working_directory given here replace the profile's, and environment is added over it. " +
+        "Values are used literally - $(...) and %VAR% are not expanded - executablePath is ignored, " +
+        "and only 'Project' profiles are accepted.")]
     public string LaunchProgram(
         string program_path,
         string[]? args = null,
         string? working_directory = null,
         Dictionary<string, string>? environment = null,
-        int? session_id = null)
+        int? session_id = null,
+        string? project_path = null,
+        string? launch_profile = null)
     {
         try
         {
             var program = InputValidation.ValidateProgramPath(program_path);
-            InputValidation.ValidateWorkingDirectory(working_directory);
+
+            if (launch_profile is not null && project_path is null)
+                throw new ArgumentException(
+                    "launch_profile needs project_path, the project whose launchSettings.json holds it",
+                    nameof(launch_profile));
+
+            var profile = project_path is null ? null : LaunchSettings.Read(project_path, launch_profile);
+
             InputValidation.ValidateLaunchEnvironment(environment);
+            // The profile's variables are checked as well as the caller's: it comes with the
+            // repository, so it is no more trusted than the agent's own input
+            InputValidation.ValidateLaunchEnvironment(profile?.Environment, $"launch profile '{profile?.Name}'");
+
+            IReadOnlyList<string>? arguments = args;
+            var workingDirectory = working_directory;
+            IReadOnlyDictionary<string, string>? launchEnvironment = environment;
+
+            if (profile is not null)
+                (arguments, workingDirectory, launchEnvironment) = profile.Apply(args, working_directory, environment);
+
+            InputValidation.ValidateWorkingDirectory(workingDirectory);
 
             var session = _sessionManager.AcquireForDebuggee(session_id);
-            session.Launch(program, args, working_directory, environment).GetAwaiter().GetResult();
+            session.Launch(program, arguments, workingDirectory, launchEnvironment).GetAwaiter().GetResult();
 
             var response = new
             {
                 success = true,
                 session_id = session.SessionId,
                 program,
+                launch_profile = profile?.Name,
                 started = false,
                 message = "Launched but not started. Set breakpoints now - they will be in place " +
                     "before the program runs - then call start_program."
