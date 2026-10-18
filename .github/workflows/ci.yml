@@ -268,6 +268,13 @@ jobs:
       with:
         subject-path: ./artifacts/*.nupkg
 
+    # The registry job compares what nuget.org serves against this, before attesting nuget.org's copy
+    - name: Keep the built package for the registry job
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: nupkg
+        path: ./artifacts/*.nupkg
+
     # Trusted publishing: nuget.org validates the workflow's OIDC token against a policy naming this
     # owner, repository, workflow file and environment, then issues an API key that lives an hour. No long-lived
     # secret is stored here. The key is requested immediately before the push on purpose.
@@ -307,14 +314,21 @@ jobs:
 
     permissions:
       # The registry authenticates the io.github.nevse namespace from this token. No secret is
-      # stored: the same OIDC exchange the NuGet push already relies on.
+      # stored: the same OIDC exchange the NuGet push already relies on. It also signs the
+      # attestation of nuget.org's copy of the package.
       id-token: write
+      attestations: write
 
     steps:
     # No checkout: the only file this needs is the manifest the package job stamped and shipped
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
         name: mcp-manifest
+
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: nupkg
+        path: built
 
     # The registry proves we own the name by reading the mcp-name marker out of the package README on
     # nuget.org, so there is nothing for it to verify until nuget has finished validating the push.
@@ -340,11 +354,42 @@ jobs:
         echo "::error::$url never became available, so the registry cannot verify the package"
         exit 1
 
-    # Always the latest binary on purpose: an older one fails against the current registry with
-    # "invalid audience", which reads like an authentication problem rather than a stale tool.
+    # nuget.org adds its repository signature, .signature.p7s, to every package it accepts, so the
+    # file it serves is not the one the package job attested and gh attestation verify finds nothing
+    # for it. This checks that nuget.org's copy holds exactly what was built - every entry by name,
+    # CRC and size, the signature aside - and attests that copy too, so a package downloaded from
+    # nuget.org verifies directly.
+    - name: Check nuget.org serves the package that was built
+      env:
+        VERSION: ${{ needs.package.outputs.version }}
+      run: |
+        mkdir -p published
+        curl -fsSLo "published/DotnetDebugger.Mcp.${VERSION}.nupkg" \
+          "https://api.nuget.org/v3-flatcontainer/dotnetdebugger.mcp/${VERSION}/dotnetdebugger.mcp.${VERSION}.nupkg"
+
+        python3 - "built/DotnetDebugger.Mcp.${VERSION}.nupkg" "published/DotnetDebugger.Mcp.${VERSION}.nupkg" <<'PY'
+        import sys, zipfile
+        def entries(path):
+            with zipfile.ZipFile(path) as z:
+                return {(i.filename, i.CRC, i.file_size) for i in z.infolist()}
+        built, published = entries(sys.argv[1]), entries(sys.argv[2])
+        signature = {e for e in published if e[0] == ".signature.p7s"}
+        if not signature:
+            raise SystemExit("nuget.org's copy carries no repository signature; refusing to attest it")
+        if published - signature != built:
+            raise SystemExit(f"nuget.org's copy differs from the build: {sorted(built ^ (published - signature))[:10]}")
+        print(f"nuget.org's copy matches the build in all {len(built)} entries, plus its signature")
+        PY
+
+    - name: Attest nuget.org's copy of the package
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: ./published/*.nupkg
+
     # Pinned, and checked against the checksums the release publishes in registry_1.8.1_checksums.txt,
     # since this binary runs with the token that publishes the registry entry. Bump the version and
-    # both checksums together.
+    # both checksums together - and do, if authentication fails with "invalid audience": that is how
+    # the registry rejects a publisher too old for it, and it reads like a credentials problem.
     - name: Install mcp-publisher
       env:
         MCP_PUBLISHER_VERSION: v1.8.1

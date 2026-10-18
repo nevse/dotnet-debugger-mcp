@@ -111,12 +111,17 @@ the same way a wrong path does.
 ### Checking where a package came from
 
 Releases after 0.6.1 carry a build provenance attestation: a statement, signed through GitHub, that
-this repository's release workflow built that exact package from a given commit. To check one before
+this repository's release workflow built that package from a given commit. To check one before
 mirroring or installing it, download the `.nupkg` from nuget.org and run:
 
 ```bash
 gh attestation verify DotnetDebugger.Mcp.<version>.nupkg --repo nevse/dotnet-debugger-mcp
 ```
+
+nuget.org adds its own repository signature to every package it accepts, which changes the file, so
+the release workflow attests both: the package as built, attached to the GitHub Release, and nuget.org's
+copy, once it has checked that copy holds exactly what was built. For 0.6.2 only the first exists:
+verify the copy from `gh release download v0.6.2 -R nevse/dotnet-debugger-mcp -p '*.nupkg'`.
 
 ### Upgrading
 
