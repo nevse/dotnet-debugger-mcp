@@ -67,6 +67,21 @@ claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version 
 Add `--scope user` to make it available in every project, or `--scope project` to write a `.mcp.json`
 that is committed and shared with your team.
 
+**VS Code**, in `.vscode/mcp.json` for the workspace, or with **MCP: Open User Configuration** for every
+workspace. VS Code calls the section `servers`, not `mcpServers`:
+
+```json
+{
+  "servers": {
+    "dotnet-debugger": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"]
+    }
+  }
+}
+```
+
 **Claude Desktop**, by editing `~/.config/Claude/claude_desktop_config.json` on macOS and Linux, or
 `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
 
@@ -328,9 +343,15 @@ The profile comes with the repository, so it gets no more trust than the agent d
 in it is refused like any other, and the error names the profile. A project with no `launchSettings.json`
 is launched without a profile unless one was named.
 
-This is not a sandbox. A .NET app can do anything its user can, and an agent able to write and build
-code can launch what it built. What it stops is `launch_program` serving as a shell for a client that
-allows this server's tools but not a shell.
+This is not a sandbox, and it does not stop `launch_program` from serving as a shell. A .NET app can do
+anything its user can, an agent able to write and build code can launch what it built, and ready-made
+.NET apps that run other programs are already on the machine: the SDK's own
+`sdk/<version>/dotnet.dll` has its `.runtimeconfig.json` beside it, so launching it reaches the whole
+`dotnet` CLI, building and running any project included. `evaluate_expression` can call
+`Process.Start` in whatever is being debugged. What the check stops is the agent naming a native
+program directly. Treat a client that allows this server's tools as one that allows a shell, and
+confirm `launch_program`, `evaluate_expression`, `build_mobile_app` and `attach_to_process` calls rather
+than approving them automatically.
 
 ### Attaching to other users' processes
 
@@ -453,7 +474,7 @@ Set these as environment variables in your client's configuration:
   "mcpServers": {
     "dotnet-debugger": {
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--yes"],
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"],
       "env": {
         "SHARPDBG_LOG_LEVEL": "Debug"
       }
