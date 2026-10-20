@@ -29,5 +29,10 @@ Until that changes, each recreation is checked by hand before the pin moves: the
 Build run on it that uploaded the assets, and the zip's files against that run's artifacts. Nothing
 upstream makes that check possible without trusting the run's logs.
 
+That check has a deadline: GitHub keeps a run's artifacts for 90 days, so once the tag has moved on,
+the binaries an older release of ours bundles can no longer be matched to any build after that. Until
+attestations exist, recording the run ID and the per-file SHA-256s in the pull request that moves the
+pin would at least keep what was compared.
+
 Supply-chain risk: binaries in our package that cannot be traced to their source, under a version that
 does not identify them.
