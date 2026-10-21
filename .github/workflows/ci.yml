@@ -128,7 +128,7 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    # Both checks are allowed to fail so that every one of them runs and reports its
+    # The checks are allowed to fail so that every one of them runs and reports its
     # findings; the gate below turns the collected results into the job status.
     # The submodule carries no .editorconfig of its own, so this repository's rules would be applied
     # to the debugger's sources - which are formatted to its conventions, not ours, and which nothing
@@ -143,11 +143,19 @@ jobs:
       run: dotnet build --no-restore /p:TreatWarningsAsErrors=true
       continue-on-error: true
 
+    # The release only checks which version the README pins, so an install command added without
+    # one would pass it and run whatever is newest
+    - name: Check install commands name a version
+      id: pins
+      run: python3 scripts/readme-version.py lint
+      continue-on-error: true
+
     - name: Code quality gate
       if: always()
       env:
         FORMAT_OUTCOME: ${{ steps.format.outcome }}
         ANALYSIS_OUTCOME: ${{ steps.analysis.outcome }}
+        PINS_OUTCOME: ${{ steps.pins.outcome }}
       run: |
         status=0
         if [ "$FORMAT_OUTCOME" != "success" ]; then
@@ -156,6 +164,10 @@ jobs:
         fi
         if [ "$ANALYSIS_OUTCOME" != "success" ]; then
           echo "::error title=Analysis::Code analysis reported warnings as errors (see the Run code analysis step)"
+          status=1
+        fi
+        if [ "$PINS_OUTCOME" != "success" ]; then
+          echo "::error title=Pins::An install command names no version (see the Check install commands step)"
           status=1
         fi
         if [ "$status" -eq 0 ]; then

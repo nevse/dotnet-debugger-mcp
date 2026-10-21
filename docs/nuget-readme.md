@@ -23,7 +23,21 @@ The .NET 10 SDK. It provides `dnx`, and the server itself targets `net10.0`.
 claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version @VERSION@ --yes
 ```
 
-**VS Code, Claude Desktop, or any client taking JSON:**
+**VS Code** (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "dotnet-debugger": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "@VERSION@", "--yes"]
+    }
+  }
+}
+```
+
+**Claude Desktop, or any other client taking JSON:**
 
 ```json
 {

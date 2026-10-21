@@ -103,7 +103,9 @@ README pull request.
 Doing it by hand is the same steps: a pull request running `python3 scripts/readme-version.py bump
 0.1.0`, then, once it has merged, `git tag -a v0.1.0 -m "Version 0.1.0"` on the merge commit, `git push
 origin v0.1.0` and the GitHub Release. The `package` job runs `readme-version.py check` and stops a
-release whose version `README.md` does not pin.
+release whose version `README.md` does not pin. `readme-version.py lint`, which `check` also runs and
+the Code Quality job runs on every change, refuses an install command in either README that names no
+version at all.
 
 If the script stops partway, nothing after that point happened. A pull request that did not merge
 leaves no tag; one that merged leaves `README.md` ahead of the release, and the tag and release can be
