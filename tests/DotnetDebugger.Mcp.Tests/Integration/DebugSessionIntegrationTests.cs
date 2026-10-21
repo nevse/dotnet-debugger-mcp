@@ -1,10 +1,10 @@
 ﻿using System.Diagnostics;
 
-using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
-
 using DotnetDebugger.Mcp.Configuration;
 using DotnetDebugger.Mcp.Debugging;
 using DotnetDebugger.Mcp.Tools;
+
+using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 
 namespace DotnetDebugger.Mcp.Tests.Integration;
 

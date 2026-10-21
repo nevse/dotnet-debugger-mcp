@@ -1,11 +1,11 @@
 ﻿using System.Text;
 
+using DotnetDebugger.Mcp.Logging;
+
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages;
 
 using Newtonsoft.Json.Linq;
-
-using DotnetDebugger.Mcp.Logging;
 
 using MSBreakpoint = Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages.Breakpoint;
 

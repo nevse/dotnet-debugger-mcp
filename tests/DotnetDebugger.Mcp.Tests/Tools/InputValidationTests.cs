@@ -1,7 +1,7 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using DotnetDebugger.Mcp.Debugging;
 using DotnetDebugger.Mcp.Tools;
+
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace DotnetDebugger.Mcp.Tests.Tools;
 

@@ -1,9 +1,9 @@
 using System.Reflection;
 
+using DotnetDebugger.Mcp.Configuration;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
-using DotnetDebugger.Mcp.Configuration;
 
 namespace DotnetDebugger.Mcp.Tests.Configuration;
 

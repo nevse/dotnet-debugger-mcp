@@ -1,15 +1,15 @@
+using DotnetDebugger.Mcp.Configuration;
+using DotnetDebugger.Mcp.Debugging;
+using DotnetDebugger.Mcp.Documentation;
+using DotnetDebugger.Mcp.Logging;
+using DotnetDebugger.Mcp.Mobile;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-
-using DotnetDebugger.Mcp.Configuration;
-using DotnetDebugger.Mcp.Debugging;
-using DotnetDebugger.Mcp.Documentation;
-using DotnetDebugger.Mcp.Logging;
-using DotnetDebugger.Mcp.Mobile;
 
 namespace DotnetDebugger.Mcp;
 

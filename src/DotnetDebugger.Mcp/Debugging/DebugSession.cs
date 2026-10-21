@@ -1,7 +1,7 @@
-﻿using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
-
-using DotnetDebugger.Mcp.Configuration;
+﻿using DotnetDebugger.Mcp.Configuration;
 using DotnetDebugger.Mcp.Logging;
+
+using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 
 namespace DotnetDebugger.Mcp.Debugging;
 

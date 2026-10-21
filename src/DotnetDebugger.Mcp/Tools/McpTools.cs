@@ -1,9 +1,9 @@
 using System.ComponentModel;
 using System.Text.Json;
 
-using ModelContextProtocol.Server;
-
 using DotnetDebugger.Mcp.Documentation;
+
+using ModelContextProtocol.Server;
 
 namespace DotnetDebugger.Mcp.Tools;
 
