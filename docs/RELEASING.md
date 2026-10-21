@@ -142,7 +142,7 @@ covers nuget's validation alone.
 
 The marker itself is in `docs/nuget-readme.md`, which opens with
 `<!-- mcp-name: io.github.nevse/dotnet-debugger-mcp -->`, matching `name` in
-`src/SharpDbg.MCP/.mcp/server.json`. Changing either without the other breaks ownership verification.
+`src/DotnetDebugger.Mcp/.mcp/server.json`. Changing either without the other breaks ownership verification.
 
 ### Re-publishing a version
 

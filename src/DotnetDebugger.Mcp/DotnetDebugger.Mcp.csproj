@@ -1,0 +1,107 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+      <!-- The debug adapter runs as a child process and has to sit beside this output -->
+    <NeedsClrdbgAdapter>true</NeedsClrdbgAdapter>
+      <!-- So do the remote CoreCLR libraries a MAUI app is debugged through -->
+    <NeedsRemoteCoreclrLibraries>true</NeedsRemoteCoreclrLibraries>
+</PropertyGroup>
+
+  <!-- Shipped as a .NET tool, so `dnx DotnetDebugger.Mcp` and `dotnet tool exec` both run it with
+       no path in the client's configuration. One RID-agnostic package covers every platform: the
+       native debugger shim from Microsoft.Diagnostics.DbgShim ships all RIDs under
+       runtimes/<rid>/native, and the tool host picks the right one through the deps.json RID graph. -->
+  <PropertyGroup>
+    <!-- The release tag supplies the real one, via -p:Version at pack time. Stated here rather than
+         left to the SDK's 1.0.0 default so an unreleased build says what it is - and so a genuine
+         1.0.0 release is not mistaken for one. -->
+    <Version>0.0.0-dev</Version>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>dotnet-debugger-mcp</ToolCommandName>
+    <PackageId>DotnetDebugger.Mcp</PackageId>
+    <!-- Lists the package under nuget.org/packages?packagetype=mcpserver and gives its page an
+         "MCP Server" tab that generates client configuration from .mcp/server.json -->
+    <PackageType>McpServer</PackageType>
+    <Title>.NET Debugger for MCP</Title>
+    <Description>An MCP server that gives an AI agent a real .NET debugger: attach to a running process or launch a program, set breakpoints, step, read locals and evaluate expressions.</Description>
+    <PackageTags>mcp;model-context-protocol;debugger;debugging;dotnet;ai-agent</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget-readme.md" Pack="true" PackagePath="README.md" />
+    <None Include=".mcp\server.json" Pack="true" PackagePath=".mcp\server.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MCP SDK (preview) -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ModelContextProtocol" />
+
+    <!-- Debugging infrastructure: clrdbg, built from source. It publishes no package, so there is no
+         PackageReference form of this - ClrdbgSourcePath says where the checkout is, see
+         Directory.Build.props.
+         The debugger runs as a child process, so none of its code is linked in - see
+         ChildProcessDebugAdapter, and the BuildClrdbgAdapter target that builds the binary.
+         This one reference is the exception: the HRESULT constants DebuggerErrors explains. They are
+         const, so the compiler bakes the values in and nothing of CorApi is needed at run time. -->
+    <ProjectReference Include="$(ClrdbgSourcePath)\DotNet.Debugging.CorApi\DotNet.Debugging.CorApi.csproj" />
+    <!-- The protocol types are what the adapter is spoken to with, and are ours to bring: clrdbg's
+         own projects reference them without flowing them on -->
+    <PackageReference Include="Microsoft.VisualStudio.Shared.VSCodeDebugProtocol" />
+
+    <!-- Markdown parsing for Phase 1 -->
+    <PackageReference Include="Markdig" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded documentation -->
+    <EmbeddedResource Include="Data\how_dotnet_debuggers_work.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copied rather than embedded: it is passed to MSBuild as a file path, on the build of the
+         user's own MAUI project, so it has to exist on disk beside the server. Being readable is
+         the point of it too - it is added to somebody else's build, and they can see what it adds. -->
+    <None Update="Resources\CopyRemoteCoreclrTargetLibrary.targets" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+
+  <!-- The debug adapter travels inside the package, beside the server, because the server starts it as
+       a child process and looks for it there. Added through TargetsForTfmSpecificBuildOutput rather than
+       as None items: the files do not exist until BuildClrdbgAdapter has run, so they cannot be listed
+       ahead of time.
+
+       The apphost is left out on purpose. It is the one file in that output built for the RID of the
+       machine that packed it, and nothing uses it - the adapter is started as 'dotnet clrdbg.dll', which
+       is also what keeps macOS from refusing the debuggee's task port to an unentitled binary. Leaving
+       it behind is what makes this package genuinely platform-agnostic, the native shim being shipped
+       for every platform at once under runtimes/. -->
+  <PropertyGroup>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackClrdbgAdapter;PackRemoteCoreclrLibraries</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <Target Name="PackClrdbgAdapter" DependsOnTargets="BuildClrdbgAdapter">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(ClrdbgAdapterOutput)/**/*"
+                              Exclude="$(ClrdbgAdapterOutput)/clrdbg">
+        <PackagePath>tools/$(TargetFramework)/any/clrdbg/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+
+  <!-- The remote CoreCLR libraries go in the same way, for every platform at once: the host half is
+       picked by the RID of the machine debugging, the target half by the device being debugged, and
+       neither is known when the package is made. The metadata is qualified by an item of its own:
+       unqualified, it would batch over the adapter files PackClrdbgAdapter has already added. -->
+  <Target Name="PackRemoteCoreclrLibraries" DependsOnTargets="FetchRemoteCoreclrLibraries">
+    <ItemGroup>
+      <_RemoteCoreclrPackFile Include="$(RemoteCoreclrLibrariesFiles)/**/*" />
+      <TfmSpecificPackageFile Include="@(_RemoteCoreclrPackFile)">
+        <PackagePath>tools/$(TargetFramework)/any/remote-coreclr/%(_RemoteCoreclrPackFile.RecursiveDir)%(_RemoteCoreclrPackFile.Filename)%(_RemoteCoreclrPackFile.Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+
+</Project>

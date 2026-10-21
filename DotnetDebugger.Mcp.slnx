@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotnetDebugger.Mcp.TestApp/DotnetDebugger.Mcp.TestApp.csproj" />
+    <Project Path="tests/DotnetDebugger.Mcp.Tests/DotnetDebugger.Mcp.Tests.csproj" />
+  </Folder>
+</Solution>

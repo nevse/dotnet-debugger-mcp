@@ -33,8 +33,8 @@
     <RemoteCoreclrLibrariesSha256>f74c4897456a30a4864d0ca8dfe124b5e2a7a0a92ac5a5313f7a5bded0121f2b</RemoteCoreclrLibrariesSha256>
 
     <!-- Repository and package metadata -->
-    <Authors>SharpDbg MCP Contributors</Authors>
-    <Copyright>Copyright © 2026 SharpDbg MCP Contributors</Copyright>
+    <Authors>.NET Debugger MCP Contributors</Authors>
+    <Copyright>Copyright © 2026 .NET Debugger MCP Contributors</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/nevse/dotnet-debugger-mcp</RepositoryUrl>

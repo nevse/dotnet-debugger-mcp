@@ -17,7 +17,7 @@ Demonstrates how to add a new MCP tool to the server.
 
 **To use:**
 1. Copy `CustomTool.cs` to the `Tools/` directory
-2. Rename the class and update the namespace to `SharpDbg.MCP.Tools`
+2. Rename the class and update the namespace to `DotnetDebugger.Mcp.Tools`
 3. Implement your custom logic
 4. Rebuild the project - the tool will be auto-discovered
 5. Add documentation to README.md
@@ -109,7 +109,7 @@ public static class CustomProcessTools
 
 ## Testing Your Extensions
 
-1. **Unit Tests**: Add tests to `SharpDbg.MCP.Tests/Tools/`
+1. **Unit Tests**: Add tests to `DotnetDebugger.Mcp.Tests/Tools/`
    ```csharp
    [TestClass]
    public class CustomToolTests
@@ -203,7 +203,7 @@ Example:
 public int CustomTimeoutSeconds { get; set; } = 60;
 
 // In LoadFromEnvironment()
-var customTimeout = Environment.GetEnvironmentVariable("SHARPDBG_CUSTOM_TIMEOUT");
+var customTimeout = Environment.GetEnvironmentVariable("DOTNET_DEBUGGER_MCP_CUSTOM_TIMEOUT");
 if (int.TryParse(customTimeout, out var parsed) && parsed > 0)
 {
     config.CustomTimeoutSeconds = parsed;

@@ -1,6 +1,6 @@
 ---
 worth: yes
-where: src/SharpDbg.MCP/Tools/DebuggingTools.cs
+where: src/DotnetDebugger.Mcp/Tools/DebuggingTools.cs
 added: 2026-10-20
 ---
 # tools declare no MCP annotations

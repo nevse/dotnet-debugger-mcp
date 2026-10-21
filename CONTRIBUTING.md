@@ -59,17 +59,17 @@ initialize it.
 
 At run time the server starts the adapter as a child process, `dotnet <output directory>/clrdbg/clrdbg.dll`,
 and speaks the Debug Adapter Protocol over its standard input and output. That code lives in
-`src/SharpDbg.MCP/Debugging/ChildProcessDebugAdapter.cs`. A process of its own is what makes a native
+`src/DotnetDebugger.Mcp/Debugging/ChildProcessDebugAdapter.cs`. A process of its own is what makes a native
 crash inside `libmscordbi` take down the adapter rather than the server, and on macOS the `dotnet`
-muxer carries the entitlement a debugger needs. Set `SHARPDBG_ADAPTER_PATH` to the adapter assembly to
+muxer carries the entitlement a debugger needs. Set `DOTNET_DEBUGGER_MCP_ADAPTER_PATH` to the adapter assembly to
 use one built elsewhere.
 
 ```bash
 # Build the main project
-dotnet build src/SharpDbg.MCP/SharpDbg.MCP.csproj
+dotnet build src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
 
 # Run tests
-dotnet test tests/SharpDbg.MCP.Tests/SharpDbg.MCP.Tests.csproj
+dotnet test tests/DotnetDebugger.Mcp.Tests/DotnetDebugger.Mcp.Tests.csproj
 
 # Or use the helper script
 ./scripts/build-and-test.sh
@@ -96,11 +96,11 @@ dotnet build -p:ClrdbgSourcePath=/path/to/clrdbg
 
 ```bash
 # Run with default configuration
-dotnet run --project src/SharpDbg.MCP/SharpDbg.MCP.csproj
+dotnet run --project src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
 
 # Run with debug logging
-export SHARPDBG_LOG_LEVEL="Debug"
-dotnet run --project src/SharpDbg.MCP/SharpDbg.MCP.csproj
+export DOTNET_DEBUGGER_MCP_LOG_LEVEL="Debug"
+dotnet run --project src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
 
 # Or use the helper script
 ./scripts/test-server.sh
@@ -109,9 +109,9 @@ dotnet run --project src/SharpDbg.MCP/SharpDbg.MCP.csproj
 ## Project Structure
 
 ```
-SharpDbg.MCP/
+dotnet-debugger-mcp/
 ├── src/
-│   └── SharpDbg.MCP/            # Main project
+│   └── DotnetDebugger.Mcp/      # Main project
 │       ├── Program.cs           # Entry point
 │       ├── Tools/               # MCP tool implementations
 │       ├── Debugging/           # Debugger session management
@@ -120,7 +120,7 @@ SharpDbg.MCP/
 │       ├── Configuration/       # Configuration system
 │       └── Data/                # Embedded resources
 ├── tests/
-│   └── SharpDbg.MCP.Tests/     # Unit tests
+│   └── DotnetDebugger.Mcp.Tests/ # Unit tests
 ├── external/
 │   └── clrdbg/                  # Debugger submodule, built from source
 ├── examples/                    # Extension examples
@@ -195,7 +195,7 @@ public void Attach(int processId)
    ```
 3. **Validate inputs** using InputValidation class
 4. **Return JSON** using System.Text.Json.JsonSerializer
-5. **Add tests** in SharpDbg.MCP.Tests
+5. **Add tests** in DotnetDebugger.Mcp.Tests
 6. **Document in README** under "Available Tools" section
 
 ### Adding New Configuration Options
@@ -358,18 +358,18 @@ Instead, email security details to: [SECURITY_EMAIL]
 
 1. **Run with verbose logging**:
    ```bash
-   export SHARPDBG_LOG_LEVEL="Trace"
-   export SHARPDBG_ENABLE_DIAGNOSTICS="true"
+   export DOTNET_DEBUGGER_MCP_LOG_LEVEL="Trace"
+   export DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS="true"
    dotnet run
    ```
 
 2. **Test with TestApp**:
    ```bash
    # Terminal 1: Run TestApp
-   cd ../TestApp && dotnet run
+   dotnet run --project tests/DotnetDebugger.Mcp.TestApp
 
    # Terminal 2: Run MCP server and attach to TestApp
-   cd SharpDbg.MCP && dotnet run
+   dotnet run --project src/DotnetDebugger.Mcp
    ```
 
 3. **Use breakpoints**: Attach a debugger to the MCP server process itself

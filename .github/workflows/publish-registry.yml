@@ -81,7 +81,7 @@ jobs:
         python3 - <<'PY'
         import json, os, pathlib
         version = os.environ["VERSION"]
-        path = pathlib.Path("src/SharpDbg.MCP/.mcp/server.json")
+        path = pathlib.Path("src/DotnetDebugger.Mcp/.mcp/server.json")
         manifest = json.loads(path.read_text())
         manifest["version"] = version
         for package in manifest["packages"]:
@@ -113,7 +113,7 @@ jobs:
       run: ./mcp-publisher login github-oidc
 
     - name: Publish
-      run: ./mcp-publisher publish src/SharpDbg.MCP/.mcp/server.json
+      run: ./mcp-publisher publish src/DotnetDebugger.Mcp/.mcp/server.json
 
     - name: Report what the registry now holds
       if: always()
