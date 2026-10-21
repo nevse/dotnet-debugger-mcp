@@ -9,8 +9,9 @@
     app takes one of each: the target library goes inside the app and the adapter loads the host
     library to talk to it.
 
-    Each zip is downloaded once per version into the repository's own obj/clrdbg/<version>/, shared by
-    every project and every configuration, and checked against its pinned hash before it is unpacked.
+    Each zip is downloaded once per version and pinned hash into the repository's own
+    obj/clrdbg/<version>/, shared by every project and every configuration, and checked against that
+    hash before it is unpacked.
     The zips are kept there after unpacking: CI verifies their build provenance from that folder. Set
     NeedsClrdbgAdapter or NeedsRemoteCoreclrLibraries in a project to opt into either.
   -->
@@ -42,9 +43,15 @@
   <Target Name="FetchClrdbgRelease" Outputs="%(ClrdbgReleaseAsset.Identity)">
     <PropertyGroup>
       <_ClrdbgReleaseZip>$(ClrdbgReleaseCache)/%(ClrdbgReleaseAsset.Identity)</_ClrdbgReleaseZip>
-      <!-- Written last, so an interrupted download or unpack is redone rather than half-used -->
-      <_ClrdbgReleaseStamp>%(ClrdbgReleaseAsset.Files).stamp</_ClrdbgReleaseStamp>
+      <!-- Written last, so an interrupted download or unpack is redone rather than half-used. Named
+           by the pinned hash, not only the version: clrdbg has recreated a release in place before,
+           and a pin moved to the new hash has to refetch and verify rather than reuse what is here. -->
+      <_ClrdbgReleaseStamp>%(ClrdbgReleaseAsset.Files).%(ClrdbgReleaseAsset.Sha256).stamp</_ClrdbgReleaseStamp>
     </PropertyGroup>
+
+    <!-- DownloadFile skips a file it takes for unchanged by size and date, which would keep the zip
+         the old pin left behind -->
+    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="$(_ClrdbgReleaseZip)" />
 
     <DownloadFile Condition="!Exists('$(_ClrdbgReleaseStamp)')"
                   SourceUrl="%(ClrdbgReleaseAsset.Url)"
@@ -56,6 +63,14 @@
                     File="$(_ClrdbgReleaseZip)"
                     Algorithm="SHA256"
                     Hash="%(ClrdbgReleaseAsset.Sha256)" />
+
+    <!-- The stamps of other pins go with the files they vouched for, so moving the pin back does not
+         find its old stamp beside what the newer one unpacked -->
+    <ItemGroup Condition="!Exists('$(_ClrdbgReleaseStamp)')">
+      <_ClrdbgReleaseStaleStamp Remove="@(_ClrdbgReleaseStaleStamp)" />
+      <_ClrdbgReleaseStaleStamp Include="%(ClrdbgReleaseAsset.Files).*.stamp" />
+    </ItemGroup>
+    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="@(_ClrdbgReleaseStaleStamp)" />
 
     <RemoveDir Condition="!Exists('$(_ClrdbgReleaseStamp)')" Directories="%(ClrdbgReleaseAsset.Files)" />
 

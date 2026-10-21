@@ -137,9 +137,10 @@ version finds out, and in the Package job before it packs. Run the script locall
 ### FetchClrdbgRelease
 
 **Directory.Build.targets** defines the `FetchClrdbgRelease` target. It downloads each zip a project
-needs once per version into `obj/clrdbg/<version>/` at the repository root, checks its hash and unpacks
-it beside the zip; the zips are kept, and the provenance check reads them there. The first build
-therefore needs network access to github.com.
+needs into `obj/clrdbg/<version>/` at the repository root, checks its hash and unpacks it beside the
+zip. It does that once per version and hash, so a pin moved to a recreated release fetches again. The
+zips are kept, and the provenance check reads them there. The first build therefore needs network
+access to github.com.
 
 `CopyClrdbgAdapter` copies the adapter to `$(OutDir)clrdbg/` before `Build` in every project that sets
 `NeedsClrdbgAdapter`, which is the server and the test project. Being framework-dependent is what lets

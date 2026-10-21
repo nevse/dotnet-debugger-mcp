@@ -13,8 +13,10 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 
 project=src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
-version=$(dotnet msbuild "$project" -getProperty:ClrdbgVersion)
-cache=$(dotnet msbuild "$project" -t:FetchClrdbgRelease -getProperty:ClrdbgReleaseCache)
+# Cleared as a global property, which wins over the environment: with ClrdbgSourcePath exported, as
+# the docs suggest for working on the debugger, the adapter zip would not be fetched at all
+version=$(dotnet msbuild "$project" -p:ClrdbgSourcePath= -getProperty:ClrdbgVersion)
+cache=$(dotnet msbuild "$project" -p:ClrdbgSourcePath= -t:FetchClrdbgRelease -getProperty:ClrdbgReleaseCache)
 
 for zip in clrdbg_universal.zip RemoteCoreClrLibraries.zip; do
     # The signer and the ref narrow it from "some workflow in that repository attested it" to the
