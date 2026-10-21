@@ -487,5 +487,8 @@ $RECYCLE.BIN/
 docs/UPSTREAM.md
 
 # Multi-agent review archive: every round keeps each agent's verbatim stream, so it grows by
-# roughly half a megabyte per round and is local working material, not part of the project
-.revmux/
+# roughly half a megabyte per round and is local working material, not part of the project.
+# The review profile is the exception: it describes the project, so every checkout reviews against
+# the same bar
+.revmux/*
+!.revmux/profile.md
