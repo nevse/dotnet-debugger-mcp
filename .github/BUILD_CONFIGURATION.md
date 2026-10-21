@@ -86,7 +86,7 @@ All projects will use the updated version after restore.
 - Follows .editorconfig rules
 
 ### Metadata
-- **Authors**: SharpDbg MCP Contributors
+- **Authors**: .NET Debugger MCP Contributors
 - **License**: MIT
 - **Copyright**: Copyright © 2026
 
@@ -94,14 +94,14 @@ All projects will use the updated version after restore.
 
 Projects can override or add properties as needed:
 
-**SharpDbg.MCP.csproj** (Main project):
+**DotnetDebugger.Mcp.csproj** (Main project):
 ```xml
 <PropertyGroup>
   <OutputType>Exe</OutputType>
 </PropertyGroup>
 ```
 
-**SharpDbg.MCP.Tests.csproj** (Test project):
+**DotnetDebugger.Mcp.Tests.csproj** (Test project):
 ```xml
 <PropertyGroup>
   <IsPackable>false</IsPackable>
@@ -152,7 +152,7 @@ dotnet build -p:ClrdbgSourcePath=/path/to/clrdbg
 
 ### PackClrdbgAdapter
 
-**SharpDbg.MCP.csproj** defines the `PackClrdbgAdapter` target, which puts the adapter in the package
+**DotnetDebugger.Mcp.csproj** defines the `PackClrdbgAdapter` target, which puts the adapter in the package
 under `tools/net10.0/any/clrdbg/`, beside the server that starts it. The native DbgShim assets under
 `runtimes/` cover every supported platform, so a single package works everywhere.
 
@@ -178,7 +178,7 @@ change to how clrdbg recognises Microsoft's libraries.
 version into `obj/remote-coreclr/<version>/` at the repository root, checks its hash and unpacks it,
 and `CopyRemoteCoreclrLibraries`, which copies it to `$(OutDir)remote-coreclr/` before `Build` in every
 project that sets `NeedsRemoteCoreclrLibraries` - the server and the test project. The first build
-therefore needs network access to github.com. **SharpDbg.MCP.csproj** defines
+therefore needs network access to github.com. **DotnetDebugger.Mcp.csproj** defines
 `PackRemoteCoreclrLibraries`, which puts them in the package under `tools/net10.0/any/remote-coreclr/`.
 
 ## Build Commands
@@ -194,7 +194,7 @@ dotnet build
 dotnet test
 
 # Build specific project
-dotnet build src/SharpDbg.MCP/SharpDbg.MCP.csproj
+dotnet build src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
 
 # Using helper scripts
 ./scripts/build-and-test.sh
@@ -203,19 +203,19 @@ dotnet build src/SharpDbg.MCP/SharpDbg.MCP.csproj
 ## Solution Structure
 
 ```
-SharpDbg.MCP/
+dotnet-debugger-mcp/
 ├── Directory.Build.props         # Common build properties
 ├── Directory.Packages.props       # Centralized package versions
 ├── Directory.Build.targets        # Builds the debug adapter from clrdbg
-├── SharpDbg.MCP.slnx             # Solution file (XML format)
+├── DotnetDebugger.Mcp.slnx       # Solution file (XML format)
 ├── .editorconfig                  # Code style rules
 ├── .gitignore                     # Git ignore patterns
 ├── external/
 │   └── clrdbg/                   # Debugger submodule, built from source
 ├── src/
-│   └── SharpDbg.MCP/             # Main project
+│   └── DotnetDebugger.Mcp/       # Main project
 └── tests/
-    └── SharpDbg.MCP.Tests/       # Test project
+    └── DotnetDebugger.Mcp.Tests/ # Test project
 ```
 
 ## Benefits of This Approach

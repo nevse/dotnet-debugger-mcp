@@ -5,8 +5,8 @@
 set -e
 
 echo "=== Building solution ==="
-dotnet build SharpDbg.MCP.slnx
+dotnet build DotnetDebugger.Mcp.slnx
 
 echo ""
 echo "=== Running integration tests ==="
-dotnet test SharpDbg.MCP.slnx --no-build --filter "TestCategory=Integration" --verbosity normal
+dotnet test DotnetDebugger.Mcp.slnx --no-build --filter "TestCategory=Integration" --verbosity normal

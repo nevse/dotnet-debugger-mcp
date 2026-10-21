@@ -1,6 +1,6 @@
 ---
 worth: yes
-where: src/SharpDbg.MCP/Debugging/DapDebugger.cs:280
+where: src/DotnetDebugger.Mcp/Debugging/DapDebugger.cs:280
 added: 2026-09-15
 ---
 # most adapter requests still have no bound

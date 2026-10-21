@@ -3,12 +3,12 @@
 # Usage: ./scripts/run-test-app.sh
 
 echo "=== Building TestApp ==="
-cd ../TestApp
+cd "$(dirname "$0")/../tests/DotnetDebugger.Mcp.TestApp"
 dotnet build
 
 echo ""
 echo "=== Running TestApp (Process ID will be shown) ==="
-echo "Attach debugger to this process using SharpDbg MCP Server"
+echo "Attach debugger to this process using .NET Debugger MCP Server"
 echo ""
 
 dotnet run

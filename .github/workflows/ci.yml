@@ -224,7 +224,7 @@ jobs:
         python3 - <<'PY'
         import json, os, pathlib
         version = os.environ["VERSION"]
-        path = pathlib.Path("src/SharpDbg.MCP/.mcp/server.json")
+        path = pathlib.Path("src/DotnetDebugger.Mcp/.mcp/server.json")
         manifest = json.loads(path.read_text())
         manifest["version"] = version
         for package in manifest["packages"]:
@@ -264,11 +264,11 @@ jobs:
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: mcp-manifest
-        path: src/SharpDbg.MCP/.mcp/server.json
+        path: src/DotnetDebugger.Mcp/.mcp/server.json
 
     - name: Pack
       run: >
-        dotnet pack src/SharpDbg.MCP/SharpDbg.MCP.csproj
+        dotnet pack src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
         --configuration Release
         -p:Version=${{ steps.version.outputs.value }}
         --output ./artifacts

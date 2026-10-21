@@ -1,6 +1,6 @@
 ---
 worth: later
-where: src/SharpDbg.MCP/Tools/InputValidation.cs:45
+where: src/DotnetDebugger.Mcp/Tools/InputValidation.cs:45
 added: 2026-10-18
 ---
 # launch_program is not limited to chosen directories
@@ -10,7 +10,7 @@ apphost beside them. Native executables and code-injecting environment variables
 .NET tool installed anywhere still runs with whatever arguments the agent passes. The SDK ships one:
 `sdk/<version>/dotnet.dll` has its `.runtimeconfig.json` beside it, so `launch_program` on it is the
 whole `dotnet` CLI, `dotnet run` of any project included. An allow-list of
-roots (`SHARPDBG_LAUNCH_ROOTS`, off by default) would let a stricter environment confine it to, say, the
+roots (`DOTNET_DEBUGGER_MCP_LAUNCH_ROOTS`, off by default) would let a stricter environment confine it to, say, the
 project's `bin/`.
 
 Unknown that settles it: whether anyone needs it. An agent that can write and build code launches what

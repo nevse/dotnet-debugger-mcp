@@ -1,6 +1,6 @@
 ---
 worth: later
-where: src/SharpDbg.MCP/Tools/InputValidation.cs:121
+where: src/DotnetDebugger.Mcp/Tools/InputValidation.cs:121
 added: 2026-10-18
 ---
 # hosting startup assemblies can still be named in launch arguments

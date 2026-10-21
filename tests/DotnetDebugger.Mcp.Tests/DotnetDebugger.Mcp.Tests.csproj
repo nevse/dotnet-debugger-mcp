@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+      <!-- The debug adapter runs as a child process and has to sit beside this output -->
+    <NeedsClrdbgAdapter>true</NeedsClrdbgAdapter>
+      <!-- The mobile tests resolve the bundled remote CoreCLR libraries beside this output too -->
+    <NeedsRemoteCoreclrLibraries>true</NeedsRemoteCoreclrLibraries>
+</PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetDebugger.Mcp\DotnetDebugger.Mcp.csproj" />
+    <!-- Built alongside the tests as a debuggee; not linked, the tests launch it as a process -->
+    <ProjectReference Include="..\DotnetDebugger.Mcp.TestApp\DotnetDebugger.Mcp.TestApp.csproj"
+                     ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

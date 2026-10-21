@@ -14,8 +14,9 @@ costs the debug session rather than the server.
 > calling a debugger's internal API, the debugger underneath has since changed from
 > [SharpDbg](https://github.com/MattParkerDev/sharpdbg) to clrdbg, launching a program under the
 > debugger is new, and the two have not shared a commit since. This repository was called
-> `SharpDbg.MCP` until the first release; GitHub redirects the old name, and the project files and
-> `SHARPDBG_*` settings still carry it.
+> `SharpDbg.MCP` until the first release, and GitHub redirects the old name. The `SHARPDBG_*` settings
+> were renamed to `DOTNET_DEBUGGER_MCP_*` in the release that followed 0.6.3; the old names are no
+> longer read.
 
 ## What it can do
 
@@ -306,7 +307,7 @@ with `get-task-allow.entitlements` containing:
 
 ### What Just My Code changes about stepping
 
-`SHARPDBG_JUST_MY_CODE=false` does not make a step stop in code you have no symbols for. Neither
+`DOTNET_DEBUGGER_MCP_JUST_MY_CODE=false` does not make a step stop in code you have no symbols for. Neither
 setting does: a step that lands in a module without symbols steps straight back out, because there is
 no source to report a location against. A step through an interpolated string goes through
 `System.Private.CoreLib` and comes back to the next statement of your own method either way.
@@ -364,13 +365,13 @@ else before it looks at the process at all, and `list_dotnet_processes` marks ea
 its token cannot be opened, and treating it as your own would make the check decorative wherever the
 lookup does not work.
 
-`SHARPDBG_ALLOW_OTHER_USER_PROCESSES=true` lifts the restriction. The operating system still has its
+`DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES=true` lifts the restriction. The operating system still has its
 own say: on Linux and macOS a normal user cannot attach to another user's process even with this
 enabled, so in practice it matters when the server runs elevated or as root.
 
 ### Debugging more than one process
 
-By default the server debugs one process at a time, and `SHARPDBG_MAX_SESSIONS` raises that. Each
+By default the server debugs one process at a time, and `DOTNET_DEBUGGER_MCP_MAX_SESSIONS` raises that. Each
 session has its own process, breakpoints and stops.
 
 `attach_to_process` and `launch_program` return a `session_id`. While only one session is open you
@@ -409,7 +410,7 @@ remote-coreclr/
 ```
 
 To use a copy built yourself instead - one with tracing compiled in, say - point
-`SHARPDBG_REMOTE_CORECLR_HOST` at a `remote-host` directory, `SHARPDBG_REMOTE_CORECLR_TARGET` at a
+`DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST` at a `remote-host` directory, `DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET` at a
 `remote-target` one, or both. Either half left unset comes from the bundled copy.
 
 Visual Studio's own remote debugger libraries (`vsdbg*`) are not used, wherever they come from: a
@@ -476,7 +477,7 @@ Set these as environment variables in your client's configuration:
       "command": "dotnet",
       "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"],
       "env": {
-        "SHARPDBG_LOG_LEVEL": "Debug"
+        "DOTNET_DEBUGGER_MCP_LOG_LEVEL": "Debug"
       }
     }
   }
@@ -485,18 +486,18 @@ Set these as environment variables in your client's configuration:
 
 | Variable | Description | Default |
 |---|---|---|
-| `SHARPDBG_LOG_LEVEL` | `Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical` | `Information` |
-| `SHARPDBG_MAX_SESSIONS` | Sessions open at once, each debugging its own process | `1` |
-| `SHARPDBG_OPERATION_TIMEOUT_SECONDS` | Bounds attaching, starting, pausing and closing a session. Steps and reads are not bounded | `30` |
-| `SHARPDBG_EVAL_TIMEOUT_MS` | Bounds anything that runs code in the debuggee: `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
-| `SHARPDBG_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
-| `SHARPDBG_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
-| `SHARPDBG_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
-| `SHARPDBG_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |
-| `SHARPDBG_REMOTE_CORECLR_HOST` | A `remote-host` directory to use instead of the bundled one, for debugging a MAUI app. See above | bundled |
-| `SHARPDBG_REMOTE_CORECLR_TARGET` | A `remote-target` directory to use instead of the bundled one | bundled |
-| `SHARPDBG_MOBILE_START_TIMEOUT_SECONDS` | Bounds `start_program` for a mobile app, which boots the emulator, installs and launches | `600` |
-| `SHARPDBG_BUILD_TIMEOUT_SECONDS` | Bounds `build_mobile_app` | `900` |
+| `DOTNET_DEBUGGER_MCP_LOG_LEVEL` | `Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical` | `Information` |
+| `DOTNET_DEBUGGER_MCP_MAX_SESSIONS` | Sessions open at once, each debugging its own process | `1` |
+| `DOTNET_DEBUGGER_MCP_OPERATION_TIMEOUT_SECONDS` | Bounds attaching, starting, pausing and closing a session. Steps and reads are not bounded | `30` |
+| `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds anything that runs code in the debuggee: `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
+| `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
+| `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
+| `DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
+| `DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |
+| `DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST` | A `remote-host` directory to use instead of the bundled one, for debugging a MAUI app. See above | bundled |
+| `DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET` | A `remote-target` directory to use instead of the bundled one | bundled |
+| `DOTNET_DEBUGGER_MCP_MOBILE_START_TIMEOUT_SECONDS` | Bounds `start_program` for a mobile app, which boots the emulator, installs and launches | `600` |
+| `DOTNET_DEBUGGER_MCP_BUILD_TIMEOUT_SECONDS` | Bounds `build_mobile_app` | `900` |
 
 ## Troubleshooting
 
@@ -527,8 +528,8 @@ ordinary `dotnet build` produces neither the runtime nor the library the debugge
 connected phones from adb, so it needs the Android SDK: set `ANDROID_HOME` or `ANDROID_SDK_ROOT` if it
 is somewhere unusual. The `warnings` in the response say which source could not be read and why.
 
-To see what the server is doing, set `SHARPDBG_LOG_LEVEL=Trace` and
-`SHARPDBG_ENABLE_DIAGNOSTICS=true`, or run it directly and watch stderr:
+To see what the server is doing, set `DOTNET_DEBUGGER_MCP_LOG_LEVEL=Trace` and
+`DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS=true`, or run it directly and watch stderr:
 
 ```bash
 dotnet tool exec DotnetDebugger.Mcp --version 0.6.3 --yes
@@ -558,7 +559,7 @@ and are separated by `TestCategory=Integration`.
 To point a client at your working copy instead of the published package:
 
 ```bash
-claude mcp add dotnet-debugger -- dotnet run --project "$(pwd)/src/SharpDbg.MCP/SharpDbg.MCP.csproj"
+claude mcp add dotnet-debugger -- dotnet run --project "$(pwd)/src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj"
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the layout and conventions.

@@ -1,0 +1,640 @@
+﻿using System.Text;
+
+using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
+using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages;
+
+using Newtonsoft.Json.Linq;
+
+using DotnetDebugger.Mcp.Logging;
+
+using MSBreakpoint = Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages.Breakpoint;
+
+namespace DotnetDebugger.Mcp.Debugging;
+
+/// <summary>
+/// Drives SharpDbg through the surface its package actually supports: an in-process debug adapter
+/// spoken to over DAP. The alternative - calling <c>ManagedDebugger</c> directly - is public but
+/// unsupported, and misses every piece of synchronisation SharpDbg has, all of which lives in its
+/// DebugAdapter.
+/// Requests are never sent from an event handler: events are delivered on the protocol's reader
+/// thread, which is also what would have to read the response.
+/// </summary>
+internal sealed class DapDebugger : IDisposable
+{
+    private readonly DebugProtocolHost _host;
+    private readonly ChildProcessDebugAdapter.AdapterProcess _adapter;
+    private readonly Action<string>? _logger;
+    private readonly TaskCompletionSource _initialized =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private bool _disposed;
+
+    /// <summary>
+    /// Thread id, reason, and the adapter ids of the breakpoints the stop is attributed to. A DAP stop
+    /// carries no source location - SharpDbg does attach one as an additional property, but
+    /// <c>ProtocolObject.AdditionalProperties</c> is not public, so the location is read from the top
+    /// stack frame instead, by whoever needs it. It must not be read here: this runs on the protocol's
+    /// reader thread, which is also what reads request responses.
+    /// </summary>
+    public event Action<int, string, IReadOnlyList<int>?>? OnStopped;
+
+    public event Action<int>? OnContinued;
+
+    /// <summary>
+    /// The debuggee has gone, with its exit code when there is one. Null means the code is unknown:
+    /// a terminate carries none, and neither does the exit of a process we merely attached to.
+    /// </summary>
+    public event Action<int?>? OnExited;
+
+    /// <summary>
+    /// The pid of a program the debugger started, once it has started it. SharpDbg raises this from
+    /// its launch path only, so attaching produces nothing - which is right, since an attaching
+    /// caller named the process itself.
+    /// </summary>
+    public event Action<int>? OnProcessStarted;
+
+    public event Action<string, bool>? OnOutput;
+    public event Action<AppliedBreakpoint>? OnBreakpointChanged;
+
+    /// <summary>The debugger's own process, which is a child of this one</summary>
+    public int AdapterProcessId => _adapter.ProcessId;
+
+    public DapDebugger(Action<string>? logger = null)
+    {
+        _logger = logger;
+
+        var (input, output, adapter) = ChildProcessDebugAdapter.Start(logger);
+        _adapter = adapter;
+        _host = new DebugProtocolHost(input, output, false);
+
+        _host.RegisterEventType<InitializedEvent>(_ => _initialized.TrySetResult());
+        _host.RegisterEventType<StoppedEvent>(OnStoppedEvent);
+        _host.RegisterEventType<ContinuedEvent>(e => OnContinued?.Invoke(e.ThreadId));
+        _host.RegisterEventType<ExitedEvent>(e => OnExited?.Invoke(e.ExitCode));
+        // Sent after exited and carrying no code of its own, so it reports the exit without claiming
+        // to know how it ended
+        _host.RegisterEventType<TerminatedEvent>(_ => OnExited?.Invoke(null));
+        _host.RegisterEventType<ProcessEvent>(OnProcessEvent);
+        _host.RegisterEventType<OutputEvent>(OnOutputEvent);
+        _host.RegisterEventType<BreakpointEvent>(OnBreakpointEvent);
+
+        _host.VerifySynchronousOperationAllowed();
+        _host.Run();
+    }
+
+    /// <summary>
+    /// Initializes the adapter, attaches, and waits for the attach to land. The DAP order is
+    /// initialize, attach, wait for initialized, configurationDone - breakpoints would normally be
+    /// sent between the last two, which an MCP server cannot do because they arrive as separate tool
+    /// calls long afterwards.
+    /// </summary>
+    public async Task Attach(
+        int processId,
+        bool justMyCode,
+        IReadOnlyList<string> filters,
+        string? typeCondition,
+        TimeSpan timeout)
+    {
+        Initialize();
+
+        _host.SendRequestSync(new AttachRequest
+        {
+            ConfigurationProperties = new Dictionary<string, JToken>
+            {
+                ["name"] = ".NET Debugger MCP",
+                ["type"] = "coreclr",
+                ["processId"] = processId,
+                ["console"] = "internalConsole",
+                ["justMyCode"] = justMyCode
+            }
+        });
+
+        await _initialized.Task.WaitAsync(timeout).ConfigureAwait(false);
+
+        SetExceptionBreakpoints(filters, typeCondition);
+
+        _host.SendRequestSync(new ConfigurationDoneRequest());
+    }
+
+    /// <summary>
+    /// Prepares a program to be debugged and returns before it runs: the adapter only records the
+    /// launch and performs it on configurationDone, which is what <see cref="Start"/> sends. Anything
+    /// set in between - breakpoints above all - is already in place when the program starts, and that
+    /// is the only way to debug its startup, since SharpDbg accepts stopAtEntry and ignores it.
+    /// </summary>
+    public async Task Launch(
+        string program,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
+        bool justMyCode,
+        IReadOnlyList<string> filters,
+        string? typeCondition,
+        TimeSpan timeout,
+        MobileLaunchOptions? mobile = null)
+    {
+        Initialize();
+
+        var configuration = new Dictionary<string, JToken>
+        {
+            ["name"] = ".NET Debugger MCP",
+            ["type"] = "coreclr",
+            ["request"] = "launch",
+            ["program"] = program,
+            ["args"] = new JArray(arguments),
+            ["cwd"] = workingDirectory,
+            ["env"] = JObject.FromObject(environment),
+            ["console"] = "internalConsole",
+            ["justMyCode"] = justMyCode
+        };
+
+        if (mobile is not null)
+            AddMobileOptions(configuration, mobile);
+
+        _host.SendRequestSync(new LaunchRequest { ConfigurationProperties = configuration });
+
+        await _initialized.Task.WaitAsync(timeout).ConfigureAwait(false);
+
+        SetExceptionBreakpoints(filters, typeCondition);
+    }
+
+    /// <summary>
+    /// Adds what the adapter reads to decide this is a mobile launch. The property names are the
+    /// adapter's own, shared with the VS Code extension the debugger was written for, so they are
+    /// spelled here exactly as its launch.json spells them.
+    /// </summary>
+    private static void AddMobileOptions(Dictionary<string, JToken> configuration, MobileLaunchOptions mobile)
+    {
+        configuration["remoteCoreclrHost"] = mobile.RemoteCoreclrHost;
+        configuration["remoteCoreclrTarget"] = mobile.RemoteCoreclrTarget;
+
+        var options = new JObject
+        {
+            ["platform"] = mobile.Platform,
+            ["assetsPath"] = mobile.AssetsPath,
+            ["isDevice"] = mobile.IsDevice,
+            ["uninstallApp"] = mobile.UninstallApp,
+            // Zero and null are what the debugger reads as "choose for yourself", which is what it
+            // should do: it forwards the port to the device, so nothing else has to agree on it
+            ["port"] = 0
+        };
+
+        if (mobile.RuntimeIdentifier is not null)
+            options["runtimeIdentifier"] = mobile.RuntimeIdentifier;
+
+        if (mobile.Device is not null)
+            options["device"] = mobile.Device;
+
+        configuration["coreClrMobileDebuggerOptions"] = options;
+    }
+
+    /// <summary>
+    /// Starts the program prepared by <see cref="Launch"/>. The request returns once the process has
+    /// been created and attached to, so a stop can already be on its way when it does.
+    /// This is the one request that creates a process, which is why it is timed: a handler that never
+    /// returns would otherwise hang start_program for good. <see cref="Disconnect"/> is timed too, so
+    /// that a start which expires can still tear its half-made session down.
+    /// </summary>
+    public void Start(TimeSpan timeout) =>
+        SendRequestWithTimeout(new ConfigurationDoneRequest(), timeout, "Starting the program");
+
+    /// <summary>
+    /// Sends a request and waits for it, giving up after <paramref name="timeout"/>.
+    /// <c>SendRequestSync</c> has no timeout of its own, so a stalled handler blocks its caller for
+    /// the life of the process.
+    /// Giving up stops us waiting; it does not stop the adapter. SharpDbg implements no cancel
+    /// handler, and it serializes every request behind one lock, so a stalled handler also holds off
+    /// the disconnect a teardown would send. Disposing the adapter is the only step that does not
+    /// need that lock, which is why a caller on the teardown path has to be able to reach it. A
+    /// caller that is not on that path may pass an infinite timeout and wait, though none does now.
+    /// </summary>
+    private void SendRequestWithTimeout<TArgs>(DebugRequest<TArgs> request, TimeSpan timeout, string what)
+        where TArgs : class, new()
+    {
+        // Same guard SendRequestSync applies: the reader thread delivers events and reads responses,
+        // so blocking it on a response would deadlock
+        _host.VerifySynchronousOperationAllowed();
+
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _host.SendRequest(
+            request,
+            _ => completed.TrySetResult(),
+            (_, ex) => completed.TrySetException(ex));
+
+        // Waiting on the handle rather than on the task: Task.Wait throws the fault wrapped in an
+        // AggregateException, which would hide the ProtocolException the line below exists to
+        // rethrow with its own type and stack, the way SendRequestSync surfaces one.
+        if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
+            throw new TimeoutException(
+                $"{what} did not complete within {timeout.TotalSeconds:0.#}s. The debug adapter is "
+                + "still working on the request.");
+
+        completed.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Says which exceptions should suspend the debuggee. Sent on attach and launch, and again whenever
+    /// the caller changes its mind, because the debugger stops on nothing until it is asked to - unlike
+    /// SharpDbg, which broke on every first-chance exception unconditionally and had no way to say
+    /// otherwise.
+    ///
+    /// Two filters exist. "all" covers every throw, first-chance included; "userUnhandled" covers the
+    /// ones that escape the caller's own code. Neither covers a genuinely unhandled exception, which
+    /// stops the program whatever is asked here - a crash cannot be hidden, so sending no filters at all
+    /// is what leaves only those.
+    ///
+    /// <paramref name="typeCondition"/> narrows a filter to particular exception types, and belongs to
+    /// whichever filter is enabled. It is a comma-separated list of fully-qualified names, matched
+    /// exactly, and a leading '!' turns the whole list into exclusions - the two cannot be mixed, which
+    /// is the debugger's own rule rather than ours.
+    /// </summary>
+    public void SetExceptionBreakpoints(IReadOnlyList<string> filters, string? typeCondition)
+    {
+        var request = new SetExceptionBreakpointsRequest { Filters = [.. filters] };
+
+        if (typeCondition is not null)
+        {
+            request.FilterOptions = [.. filters.Select(
+                filter => new ExceptionFilterOptions { FilterId = filter, Condition = typeCondition })];
+        }
+
+        _host.SendRequestSync(request);
+    }
+
+    private void Initialize() =>
+        _host.SendRequestSync(new InitializeRequest
+        {
+            ClientID = "dotnet-debugger-mcp",
+            ClientName = ".NET Debugger MCP Server",
+            AdapterID = "coreclr",
+            Locale = "en-us",
+            LinesStartAt1 = true,
+            ColumnsStartAt1 = true,
+            PathFormat = InitializeArguments.PathFormatValue.Path,
+            SupportsVariableType = true
+        });
+
+    public List<(int Id, string Name)> GetThreads()
+    {
+        var response = _host.SendRequestSync(new ThreadsRequest());
+        return response.Threads?.Select(t => (t.Id, t.Name)).ToList() ?? [];
+    }
+
+    /// <summary>
+    /// The debuggee's threads, or null if the adapter did not answer within <paramref
+    /// name="timeout"/>. Exists for the pause path, which needs a thread to pause and so asks for
+    /// one first: an unbounded lookup there would hang before the pause was even sent, which is
+    /// exactly what bounding the pause is meant to prevent.
+    /// </summary>
+    public List<(int Id, string Name)>? TryGetThreads(TimeSpan timeout)
+    {
+        _host.VerifySynchronousOperationAllowed();
+
+        var completed = new TaskCompletionSource<ThreadsResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _host.SendRequest(
+            new ThreadsRequest(),
+            (_, response) => completed.TrySetResult(response),
+            (_, ex) => completed.TrySetException(ex));
+
+        if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
+        {
+            // Nobody is left to receive an exception from a request that fails after this point
+            completed.Task.ContinueWith(
+                t => McpLogger.LogWarning(
+                    "Threads request failed after the caller stopped waiting: {Error}",
+                    t.Exception!.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
+
+            return null;
+        }
+
+        var threads = completed.Task.GetAwaiter().GetResult();
+        return threads.Threads?.Select(t => (t.Id, t.Name)).ToList() ?? [];
+    }
+
+    public List<StackFrameInfo> GetStackTrace(int threadId)
+    {
+        var response = _host.SendRequestSync(new StackTraceRequest { ThreadId = threadId });
+
+        return response.StackFrames?.Select(f => new StackFrameInfo(
+            f.Id,
+            f.Name,
+            f.Line,
+            f.EndLine ?? f.Line,
+            f.Column,
+            f.EndColumn ?? f.Column,
+            f.Source?.Path)).ToList() ?? [];
+    }
+
+    /// <summary>
+    /// The variables of a frame. SharpDbg exposes a single scope per frame, which already covers the
+    /// current exception, the arguments and the locals.
+    /// </summary>
+    public List<VariableInfo> GetFrameVariables(int frameId)
+    {
+        var scopes = _host.SendRequestSync(new ScopesRequest { FrameId = frameId });
+        var first = scopes.Scopes?.FirstOrDefault();
+
+        return first is null ? [] : GetVariables(first.VariablesReference);
+    }
+
+    public List<VariableInfo> GetVariables(int variablesReference)
+    {
+        var response = _host.SendRequestSync(new VariablesRequest { VariablesReference = variablesReference });
+
+        return response.Variables?
+            .Select(v => new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
+            .ToList() ?? [];
+    }
+
+    /// <summary>
+    /// The debugger labels a variable "current [int]", which suits a tree in an editor and not a
+    /// caller that is handed the type in a field of its own. The suffix is only removed when it is
+    /// the reported type in brackets - either in full or shortened the way the debugger shortens it
+    /// for the label - so a name that genuinely ends in brackets - an array element, "[0]" - is
+    /// left alone.
+    /// </summary>
+    private static string NameWithoutType(string name, string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+            return name;
+
+        var suffix = $" [{type}]";
+        if (name.EndsWith(suffix, StringComparison.Ordinal))
+            return name[..^suffix.Length];
+
+        suffix = $" [{ShortTypeName(type)}]";
+
+        return name.EndsWith(suffix, StringComparison.Ordinal)
+            ? name[..^suffix.Length]
+            : name;
+    }
+
+    /// <summary>
+    /// The label carries the type with every namespace dropped, generic arguments included, so
+    /// "System.Collections.Generic.List&lt;MyApp.Point&gt;" is labelled "List&lt;Point&gt;". Only
+    /// the label is shortened - the type reported beside it stays whole - so stripping the suffix
+    /// means shortening the type the same way to compare against it.
+    /// </summary>
+    private static string ShortTypeName(string type)
+    {
+        var shortened = new StringBuilder(type.Length);
+        var segmentStart = 0;
+
+        for (var i = 0; i <= type.Length; i++)
+        {
+            if (i < type.Length && type[i] is not ('<' or '>' or ',' or ' '))
+                continue;
+
+            var segment = type.AsSpan(segmentStart, i - segmentStart);
+            shortened.Append(segment[(segment.LastIndexOf('.') + 1)..]);
+            if (i < type.Length)
+                shortened.Append(type[i]);
+            segmentStart = i + 1;
+        }
+
+        return shortened.ToString();
+    }
+
+    public EvaluationResult Evaluate(string expression, int frameId)
+    {
+        var response = _host.SendRequestSync(new EvaluateRequest { Expression = expression, FrameId = frameId });
+        return new EvaluationResult(response.Result, response.Type, response.VariablesReference);
+    }
+
+    /// <summary>
+    /// The exception a thread is stopped on. This is the one read that runs code in the target, so it
+    /// costs far more than reading frames or locals: Message is a property getter, and so is
+    /// InnerException, which the debugger reads whether or not there is one. Two evaluations, three
+    /// when the exception wraps another. The type name and the recorded trace are read off the
+    /// exception object itself and cost nothing. A thread carrying no exception is a failure rather
+    /// than an empty answer, because that is all the adapter reports.
+    /// Several fields of the response are dropped. The short type name and the description are
+    /// assembled upstream out of what is kept here anyway; the break mode is hardcoded to Always, so
+    /// the one field that exists to say how the exception will be treated says it of every exception.
+    /// HResult and Source left with clrdbg 909f807: two more getters for what the type name already
+    /// says, and $exception reads them on demand for the types whose code carries anything at all
+    /// (COMException, Win32Exception).
+    /// </summary>
+    public ThrownException GetException(int threadId)
+    {
+        var response = _host.SendRequestSync(new ExceptionInfoRequest { ThreadId = threadId });
+        var details = response.Details;
+
+        // The debugger sends the direct inner exception only, as a list of one
+        var inner = details?.InnerException?.FirstOrDefault();
+
+        return new ThrownException(
+            details?.FullTypeName ?? response.ExceptionId,
+            details?.Message,
+            details?.StackTrace,
+            inner is null
+                ? null
+                : new InnerThrownException(inner.FullTypeName, inner.Message, inner.StackTrace));
+    }
+
+    public List<AppliedBreakpoint> SetBreakpoints(string filePath, IReadOnlyList<SourceBreakpointRequest> breakpoints)
+    {
+        var response = _host.SendRequestSync(new SetBreakpointsRequest
+        {
+            Source = new Source { Path = filePath },
+            Breakpoints = breakpoints
+                .Select(b => new SourceBreakpoint
+                {
+                    Line = b.Line,
+                    Condition = b.Condition,
+                    HitCondition = b.HitCondition
+                })
+                .ToList()
+        });
+
+        return Map(response.Breakpoints);
+    }
+
+    public List<AppliedBreakpoint> SetFunctionBreakpoints(IReadOnlyList<FunctionBreakpointRequest> breakpoints)
+    {
+        var response = _host.SendRequestSync(new SetFunctionBreakpointsRequest
+        {
+            Breakpoints = breakpoints
+                .Select(b => new FunctionBreakpoint(b.FunctionName)
+                {
+                    Condition = b.Condition,
+                    HitCondition = b.HitCondition
+                })
+                .ToList()
+        });
+
+        return Map(response.Breakpoints);
+    }
+
+    public void Continue(int threadId) => _host.SendRequestSync(new ContinueRequest { ThreadId = threadId });
+
+    /// <summary>
+    /// Suspends the debuggee, returning whether the adapter confirmed it within <paramref
+    /// name="timeout"/>. <paramref name="onPaused"/> runs the moment the adapter confirms, which may
+    /// be after this call has already given up waiting - that is the point of it. Recording the stop
+    /// from there rather than from the return is what lets the wait be bounded at all: giving up
+    /// stops us waiting but does not stop the adapter, so a pause can still land afterwards, and a
+    /// caller that recorded state only on return would then believe the program is running while it
+    /// is suspended.
+    ///
+    /// <paramref name="onPaused"/> runs on the adapter's callback thread and must not throw or block.
+    /// A false return means unconfirmed, not failed. A request that actually fails throws, and does
+    /// so on this thread only while this call is still waiting; afterwards there is nobody to throw
+    /// to, so the failure is logged instead.
+    /// </summary>
+    public bool TryPause(int threadId, TimeSpan timeout, Action onPaused)
+    {
+        // Same guard SendRequestSync applies: the reader thread delivers events and reads responses,
+        // so blocking it on a response would deadlock
+        _host.VerifySynchronousOperationAllowed();
+
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _host.SendRequest(
+            new PauseRequest { ThreadId = threadId },
+            _ =>
+            {
+                // Before signalling, so a caller still waiting never sees the pause confirmed with
+                // the state not yet written
+                onPaused();
+                completed.TrySetResult();
+            },
+            (_, ex) => completed.TrySetException(ex));
+
+        if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
+        {
+            // Nobody is left to receive an exception from a request that fails after this point
+            completed.Task.ContinueWith(
+                t => McpLogger.LogWarning(
+                    "Pause failed after the caller stopped waiting: {Error}",
+                    t.Exception!.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
+
+            return false;
+        }
+
+        // Waiting on the handle rather than on the task: Task.Wait throws the fault wrapped in an
+        // AggregateException, which would hide the ProtocolException this rethrows with its own type
+        completed.Task.GetAwaiter().GetResult();
+        return true;
+    }
+
+    public void StepOver(int threadId) => _host.SendRequestSync(new NextRequest { ThreadId = threadId });
+
+    public void StepIn(int threadId) => _host.SendRequestSync(new StepInRequest { ThreadId = threadId });
+
+    public void StepOut(int threadId) => _host.SendRequestSync(new StepOutRequest { ThreadId = threadId });
+
+    /// <summary>
+    /// Releases the debuggee, terminating it when this session started it. Since 0.1.13 the terminate
+    /// synchronizes the process itself, so this is the whole teardown rather than its second half.
+    /// Its only caller is that teardown, which times it because blocking forever here costs the
+    /// adapter's Dispose and every later operation on the session.
+    /// </summary>
+    public void Disconnect(bool terminateDebuggee, TimeSpan timeout) =>
+        SendRequestWithTimeout(
+            new DisconnectRequest { TerminateDebuggee = terminateDebuggee }, timeout, "Disconnecting");
+
+    private static List<AppliedBreakpoint> Map(List<MSBreakpoint>? breakpoints)
+    {
+        return breakpoints?
+            .Select(b => new AppliedBreakpoint(
+                b.Id ?? 0,
+                b.Verified,
+                b.Message,
+                b.Line,
+                b.Source?.Path))
+            .ToList() ?? [];
+    }
+
+    /// <summary>
+    /// SystemProcessId is optional in the protocol, so an event without one is passed over rather
+    /// than reported as pid 0.
+    /// </summary>
+    private void OnProcessEvent(ProcessEvent started)
+    {
+        if (started.SystemProcessId is { } processId)
+            OnProcessStarted?.Invoke(processId);
+    }
+
+    private void OnStoppedEvent(StoppedEvent stopped) =>
+        OnStopped?.Invoke(stopped.ThreadId ?? 0, ReasonToString(stopped.Reason), stopped.HitBreakpointIds);
+
+    /// <summary>
+    /// Only what the debuggee itself wrote. The debugger reports its own progress through the same
+    /// event under other categories - every module it loads, one line each - and passing that on would
+    /// put it in get_program_output, where a caller reads it as program output and cannot tell the
+    /// difference. An event with no category at all is taken as stdout, which is what it means.
+    /// </summary>
+    private void OnOutputEvent(OutputEvent output)
+    {
+        if (output.Output is null)
+            return;
+
+        var isError = output.Category == OutputEvent.CategoryValue.Stderr;
+
+        if (!isError && output.Category is not (null or OutputEvent.CategoryValue.Stdout))
+            return;
+
+        OnOutput?.Invoke(output.Output, isError);
+    }
+
+    private void OnBreakpointEvent(BreakpointEvent breakpointEvent)
+    {
+        var breakpoint = breakpointEvent.Breakpoint;
+
+        if (breakpoint is null)
+            return;
+
+        OnBreakpointChanged?.Invoke(new AppliedBreakpoint(
+            breakpoint.Id ?? 0,
+            breakpoint.Verified,
+            breakpoint.Message,
+            breakpoint.Line,
+            breakpoint.Source?.Path));
+    }
+
+    /// <summary>
+    /// Back to the debugger's own vocabulary, which is what the session and its callers speak
+    /// </summary>
+    private static string ReasonToString(StoppedEvent.ReasonValue reason) => reason switch
+    {
+        StoppedEvent.ReasonValue.Step => "step",
+        StoppedEvent.ReasonValue.Breakpoint => "breakpoint",
+        StoppedEvent.ReasonValue.FunctionBreakpoint => "breakpoint",
+        StoppedEvent.ReasonValue.Exception => "exception",
+        StoppedEvent.ReasonValue.Pause => "pause",
+        StoppedEvent.ReasonValue.Entry => "entry",
+        StoppedEvent.ReasonValue.Goto => "goto",
+        _ => "unknown"
+    };
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        try
+        {
+            _adapter.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger?.Invoke($"Failed to release the debug adapter: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>A breakpoint as the adapter reports it back</summary>
+internal sealed record AppliedBreakpoint(int Id, bool Verified, string? Message, int? Line, string? SourcePath);
+
+/// <summary>A source breakpoint to apply</summary>
+internal sealed record SourceBreakpointRequest(int Line, string? Condition, string? HitCondition);
+
+/// <summary>A function breakpoint to apply</summary>
+internal sealed record FunctionBreakpointRequest(string FunctionName, string? Condition, string? HitCondition);

@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Server;
 
-namespace SharpDbg.MCP.Examples;
+namespace DotnetDebugger.Mcp.Examples;
 
 /// <summary>
 /// Example of how to add a custom MCP tool to the server
@@ -10,7 +10,7 @@ namespace SharpDbg.MCP.Examples;
 /// <remarks>
 /// To use this example:
 /// 1. Copy this file to the Tools/ directory
-/// 2. Change the namespace to SharpDbg.MCP.Tools
+/// 2. Change the namespace to DotnetDebugger.Mcp.Tools
 /// 3. Rebuild the project
 /// 4. The tool will automatically be discovered and registered
 /// </remarks>
@@ -183,7 +183,7 @@ public static class CustomToolExample
 ///    - Add tool to README.md "Available Tools" section
 ///
 /// 7. **Testing**:
-///    - Add unit tests in SharpDbg.MCP.Tests
+///    - Add unit tests in DotnetDebugger.Mcp.Tests
 ///    - Test happy path and error cases
 ///    - Test with actual Claude Desktop
 ///

@@ -1,6 +1,6 @@
 ---
 worth: yes
-where: src/SharpDbg.MCP/Tools/DebuggingTools.cs:977
+where: src/DotnetDebugger.Mcp/Tools/DebuggingTools.cs:977
 added: 2026-10-15
 ---
 # debuggee values reach the model unredacted
