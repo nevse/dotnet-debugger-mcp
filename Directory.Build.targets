@@ -49,6 +49,15 @@
       <_ClrdbgReleaseStamp>%(ClrdbgReleaseAsset.Files).%(ClrdbgReleaseAsset.Sha256).stamp</_ClrdbgReleaseStamp>
     </PropertyGroup>
 
+    <!-- The stamps of other pins go first, before anything they vouched for is touched: the zip is
+         shared by every pin of a version, so a fetch that fails after this point must not leave one
+         to be found if the pin moves back -->
+    <ItemGroup Condition="!Exists('$(_ClrdbgReleaseStamp)')">
+      <_ClrdbgReleaseStaleStamp Remove="@(_ClrdbgReleaseStaleStamp)" />
+      <_ClrdbgReleaseStaleStamp Include="%(ClrdbgReleaseAsset.Files).*.stamp" />
+    </ItemGroup>
+    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="@(_ClrdbgReleaseStaleStamp)" />
+
     <!-- DownloadFile skips a file it takes for unchanged by size and date, which would keep the zip
          the old pin left behind -->
     <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="$(_ClrdbgReleaseZip)" />
@@ -63,14 +72,6 @@
                     File="$(_ClrdbgReleaseZip)"
                     Algorithm="SHA256"
                     Hash="%(ClrdbgReleaseAsset.Sha256)" />
-
-    <!-- The stamps of other pins go with the files they vouched for, so moving the pin back does not
-         find its old stamp beside what the newer one unpacked -->
-    <ItemGroup Condition="!Exists('$(_ClrdbgReleaseStamp)')">
-      <_ClrdbgReleaseStaleStamp Remove="@(_ClrdbgReleaseStaleStamp)" />
-      <_ClrdbgReleaseStaleStamp Include="%(ClrdbgReleaseAsset.Files).*.stamp" />
-    </ItemGroup>
-    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="@(_ClrdbgReleaseStaleStamp)" />
 
     <RemoveDir Condition="!Exists('$(_ClrdbgReleaseStamp)')" Directories="%(ClrdbgReleaseAsset.Files)" />
 
