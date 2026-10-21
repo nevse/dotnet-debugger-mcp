@@ -12,5 +12,6 @@ Decided on 2026-10-16 to keep it as is for now. The risk is reduced by hardening
 instead. Every workflow action is pinned to a commit and mcp-publisher to a checksum, publishing waits
 for approval in the `release` environment, `main` and release tags are protected by rulesets, and the
 package carries a build provenance attestation, and the nuget.org trusted-publishing policy is bound
-to the `release` environment and limited to pushing new versions of `DotnetDebugger.Mcp`. Still to do:
-nuget-id-prefix-not-reserved and clrdbg-releases-unattested-and-recreated.
+to the `release` environment and limited to pushing new versions of `DotnetDebugger.Mcp`. The clrdbg
+zips the package bundles are checked against clrdbg's own build provenance attestations. Still to do:
+nuget-id-prefix-not-reserved.

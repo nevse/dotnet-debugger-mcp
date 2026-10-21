@@ -1,12 +1,14 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-using DotNet.Debugging.CorApi;
-
 using DotnetDebugger.Mcp.Tools;
 
 namespace DotnetDebugger.Mcp.Tests.Tools;
 
+/// <summary>
+/// The HRESULTs are written out as literals, from corerror.h, rather than shared with DebuggerErrors,
+/// so a wrong value there fails here instead of being checked against itself.
+/// </summary>
 [TestClass]
 public class DebuggerErrorsTests
 {
@@ -15,7 +17,7 @@ public class DebuggerErrorsTests
     {
         var explanation = DebuggerErrors.Explain(
             new COMException("Returned from a call to Continue that was not matched with a stopping event.",
-                Cor.CORDBG_E_SUPERFLOUS_CONTINUE));
+                unchecked((int)0x8013132F)));
 
         Assert.IsNotNull(explanation);
         Assert.Contains("already running", explanation);
@@ -29,7 +31,7 @@ public class DebuggerErrorsTests
     public void Explain_DisposedHandle_SaysRetryingWillNotHelp()
     {
         var explanation = DebuggerErrors.Explain(
-            new COMException("Handle has been disposed.", Cor.CORDBG_E_HANDLE_HAS_BEEN_DISPOSED));
+            new COMException("Handle has been disposed.", unchecked((int)0x80131C01)));
 
         Assert.IsNotNull(explanation);
         Assert.Contains("detach_from_process", explanation);
@@ -40,7 +42,7 @@ public class DebuggerErrorsTests
     {
         var wrapped = new InvalidOperationException(
             "Step failed",
-            new COMException("The process has been terminated.", Cor.CORDBG_E_PROCESS_TERMINATED));
+            new COMException("The process has been terminated.", unchecked((int)0x80131301)));
 
         var explanation = DebuggerErrors.Explain(wrapped);
 
@@ -73,7 +75,7 @@ public class DebuggerErrorsTests
     public void ErrorResponse_KeepsTheRawMessageAndAddsTheExplanation()
     {
         var json = DebuggerErrors.ErrorResponse(
-            new COMException("The process is not synchronized.", Cor.CORDBG_E_PROCESS_NOT_SYNCHRONIZED));
+            new COMException("The process is not synchronized.", unchecked((int)0x80131302)));
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;

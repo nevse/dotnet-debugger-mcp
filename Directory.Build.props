@@ -10,27 +10,30 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
-    <!-- The debugger, https://github.com/JaneySprings/clrdbg, referenced as source: it publishes no
-         package, so there is nothing to restore and the checkout is the dependency.
+    <!-- The debugger, https://github.com/JaneySprings/clrdbg, taken from one release: it publishes no
+         package, but every release carries the adapter and the remote CoreCLR libraries as zips.
+         Both come from the same version, since the remote libraries speak a protocol the adapter has
+         to match, and each is pinned by its hash. CI also checks both against the build provenance
+         clrdbg attests for them. Bump the version and both hashes together.
 
-         The default is the submodule, which tracks upstream and is what CI builds. Fixes to the
-         debugger are made in a clone of our fork instead, and this switches the build over to it -
-         as an environment variable, so it applies to every command in a shell rather than being
-         repeated on each one:
-           export ClrdbgSourcePath=/Users/nevse/work/projects/clrdbg
+         clrdbg_universal.zip is the adapter, framework-dependent and RID-agnostic: runtimes/*/native
+         carries libdbgshim for every platform at once, the same shape this server ships as.
+         RemoteCoreClrLibraries.zip is taken rather than built for its own reason: the host half is
+         NativeAOT for six RIDs and the target half needs Xcode and the Android NDK. -->
+    <ClrdbgVersion>18.1.0</ClrdbgVersion>
+    <ClrdbgAdapterUrl>https://github.com/JaneySprings/clrdbg/releases/download/$(ClrdbgVersion)/clrdbg_universal.zip</ClrdbgAdapterUrl>
+    <ClrdbgAdapterSha256>d5563dc30ee6d65fb14e0422708fad3214d699fe82d640f29680a9d50d8650df</ClrdbgAdapterSha256>
+    <RemoteCoreclrLibrariesUrl>https://github.com/JaneySprings/clrdbg/releases/download/$(ClrdbgVersion)/RemoteCoreClrLibraries.zip</RemoteCoreclrLibrariesUrl>
+    <RemoteCoreclrLibrariesSha256>03001c64fd5a6df23028e340301026dd9b1319618521e9cf5a01ab805c055ee9</RemoteCoreclrLibrariesSha256>
+
+    <!-- Fixes to the debugger are made in a clone of our fork, and this builds the adapter from it
+         instead of taking the release's - as an environment variable, so it applies to every command
+         in a shell rather than being repeated on each one:
+           export ClrdbgSourcePath=/path/to/clrdbg
          or for one command:
            dotnet build -p:ClrdbgSourcePath=/path/to/clrdbg
-         Unset, everything builds against the pinned submodule. -->
-    <ClrdbgSourcePath Condition="'$(ClrdbgSourcePath)' == ''">$(MSBuildThisFileDirectory)external/clrdbg</ClrdbgSourcePath>
-
-    <!-- The remote CoreCLR debugging libraries for mobile apps, taken from a clrdbg release rather
-         than built: the host half is NativeAOT for six RIDs and the target half needs Xcode and the
-         Android NDK, which no ordinary build of this repository has. Pinned by version and by hash,
-         and kept to the release the submodule is at, since the two halves speak a protocol the
-         adapter has to match. Bump all three together with the submodule. -->
-    <RemoteCoreclrLibrariesVersion>18.0.0</RemoteCoreclrLibrariesVersion>
-    <RemoteCoreclrLibrariesUrl>https://github.com/JaneySprings/clrdbg/releases/download/$(RemoteCoreclrLibrariesVersion)/RemoteCoreClrLibraries.zip</RemoteCoreclrLibrariesUrl>
-    <RemoteCoreclrLibrariesSha256>f74c4897456a30a4864d0ca8dfe124b5e2a7a0a92ac5a5313f7a5bded0121f2b</RemoteCoreclrLibrariesSha256>
+         The remote libraries still come from ClrdbgVersion, so the clone has to speak their
+         protocol. Unset, the build uses the release alone. -->
 
     <!-- Repository and package metadata -->
     <Authors>.NET Debugger MCP Contributors</Authors>

@@ -26,14 +26,10 @@ This project adheres to a code of professionalism and respect. All contributors 
 ## Getting Started
 
 1. **Fork the repository** on GitHub
-2. **Clone your fork** locally, together with its submodules:
+2. **Clone your fork** locally:
    ```bash
-   git clone --recurse-submodules https://github.com/YOUR_USERNAME/dotnet-debugger-mcp.git
+   git clone https://github.com/YOUR_USERNAME/dotnet-debugger-mcp.git
    cd dotnet-debugger-mcp
-   ```
-   In a clone that was made without that flag, fetch the submodules afterwards:
-   ```bash
-   git submodule update --init --recursive
    ```
 3. **Add upstream remote**:
    ```bash
@@ -50,12 +46,12 @@ This project adheres to a code of professionalism and respect. All contributors 
 
 ### Building the Project
 
-The debugger this server drives is [clrdbg](https://github.com/JaneySprings/clrdbg), carried as a git
-submodule at `external/clrdbg` and built from source. The `BuildClrdbgAdapter` target in
-`Directory.Build.targets` builds its debug adapter framework-dependent and copies the result into a
-`clrdbg/` folder beside the build output. This runs as part of `dotnet build`, so there is no separate
-step. A build in a clone without the submodule fails with an error from that target that tells you to
-initialize it.
+The debugger this server drives is [clrdbg](https://github.com/JaneySprings/clrdbg), taken from one of
+its releases: `ClrdbgVersion` in `Directory.Build.props` pins it, with a SHA-256 for each zip. The
+`FetchClrdbgRelease` target in `Directory.Build.targets` downloads its debug adapter, checks the hash
+and unpacks it, and `CopyClrdbgAdapter` puts it in a `clrdbg/` folder beside the build output. This runs
+as part of `dotnet build`, so there is no separate step, and the first build needs network access to
+github.com.
 
 At run time the server starts the adapter as a child process, `dotnet <output directory>/clrdbg/clrdbg.dll`,
 and speaks the Debug Adapter Protocol over its standard input and output. That code lives in
@@ -78,8 +74,9 @@ dotnet test tests/DotnetDebugger.Mcp.Tests/DotnetDebugger.Mcp.Tests.csproj
 ### Building Against a Local clrdbg Checkout
 
 When a fix belongs in the debugger rather than in this server, point the build at a clrdbg checkout of
-your own with the `ClrdbgSourcePath` property. It defaults to the `external/clrdbg` submodule, and an
-environment variable of the same name overrides it for every command in a shell:
+your own with the `ClrdbgSourcePath` property, and the adapter is built from it in place of the
+release's. The remote CoreCLR libraries still come from the release, so the checkout has to speak their
+protocol. An environment variable of the same name sets it for every command in a shell:
 
 ```bash
 export ClrdbgSourcePath=/path/to/clrdbg
@@ -121,8 +118,6 @@ dotnet-debugger-mcp/
 │       └── Data/                # Embedded resources
 ├── tests/
 │   └── DotnetDebugger.Mcp.Tests/ # Unit tests
-├── external/
-│   └── clrdbg/                  # Debugger submodule, built from source
 ├── examples/                    # Extension examples
 ├── scripts/                     # Development scripts
 └── .github/workflows/           # CI/CD automation
