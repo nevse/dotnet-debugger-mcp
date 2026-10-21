@@ -12,7 +12,9 @@ namespace DotnetDebugger.Mcp.Tools;
 public static partial class DebuggerErrors
 {
     // Runtime HRESULTs from corerror.h, written out rather than referenced: they are part of the
-    // runtime's contract and do not change, and nothing else of the debugger is compiled against
+    // runtime's contract and do not change, and nothing else of the debugger is compiled against.
+    // Named as corerror.h names them rather than in PascalCase, so each one can be searched for in
+    // the runtime's sources and in the error text it shows up in
     private const int CORDBG_E_UNRECOVERABLE_ERROR = unchecked((int)0x80131300);
     private const int CORDBG_E_PROCESS_TERMINATED = unchecked((int)0x80131301);
     private const int CORDBG_E_PROCESS_NOT_SYNCHRONIZED = unchecked((int)0x80131302);
