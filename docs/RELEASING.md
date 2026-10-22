@@ -63,7 +63,10 @@ with no protection at all.
 - `release tags`, on `refs/tags/v*`: tags cannot be moved or deleted once pushed, so a released
   version always names the commit it was built from.
 
-CodeQL runs as default setup (Settings → Code security), with the extended query suite.
+CodeQL runs as advanced setup, from `.github/workflows/codeql.yml`, with the extended query suite.
+Default setup (Settings → Code security) must stay off: it skips a pull request that changes no file
+in an analyzed language, which the `main` ruleset then blocks for want of CodeQL results, and GitHub
+refuses the workflow's results while it is on.
 
 **Auto-merge** (Settings → General → Allow auto-merge) is on, which `scripts/release.sh` uses for the
 README pull request.
