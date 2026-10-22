@@ -329,7 +329,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false), Description(
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Control which exceptions suspend the debuggee. " +
         "mode 'always' (the default) stops on every throw, including ones the program catches itself, " +
         "so a program that uses exceptions routinely suspends constantly. " +
@@ -394,7 +394,7 @@ public sealed class DebuggingTools
         "Only works while stopped on an exception; omit thread_id to read the thread the stop was " +
         "reported on. Note that set_exception_break_mode 'never' resumes exception stops before a " +
         "caller can see them, so there is nothing to read in that mode. " +
-        "This is the one read that runs code inside the target - two property getters, three when " +
+        "This runs code inside the target - two property getters, three when " +
         "the exception wraps another - so it is much slower than a stack trace or a variable read, " +
         "and it gives up after DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS. " +
         "inner_exception goes one level deep, and whether the program is going to handle this one is " +
@@ -705,7 +705,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(Destructive = false, OpenWorld = false), Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Set a breakpoint at a specific file and line number. " +
         "Optionally pass condition, a C# expression evaluated in the frame that must be true to " +
         "stop, and/or hit_condition, a hit count in the form '5', '==5', '>5', '>=5', '<5', '<=5' " +
@@ -763,7 +763,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(Destructive = false, OpenWorld = false), Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Set a breakpoint on a method by name, for when the method is known but the file and line " +
         "are not. " +
         "function_name accepts 'Method', 'Type.Method' or 'Namespace.Type.Method'; the type part " +
@@ -1007,7 +1007,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Get local variables for a specific stack frame ID")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Get local variables for a specific stack frame ID")]
     public string GetVariables(int frame_id, int? session_id = null)
     {
         try
@@ -1053,7 +1053,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Expand a variables_reference into its members, which may themselves carry references to " +
         "expand further. References come from get_variables, from evaluate_expression and from this " +
         "tool. Expand while still stopped - a reference only applies to the stop it was taken in.")]

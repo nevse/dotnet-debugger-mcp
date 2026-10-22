@@ -196,11 +196,13 @@ Each tool declares MCP annotations, so a client that reads them can approve the 
 asking and still ask for the rest. The last column says which:
 
 - **read-only** - reads the session or the machine and changes nothing.
-- **session** - changes only the debug session: breakpoints, stepping, resuming. Not destructive.
-- **runs getters** - `get_exception_info` runs the exception's property getters inside the debuggee,
-  so it is not marked read-only, though it is not destructive either.
+- **session** - changes only the debug session: stepping, resuming, removing a breakpoint. Not
+  destructive.
+- **runs getters** - reads that run the debuggee's own code: the debugger calls `ToString`, property
+  getters and `DebuggerDisplay` to show a value. Not marked read-only, though not destructive either.
 - **ends a launched program** - destructive: a program the session launched is killed.
-- **runs code** - destructive and open-world: it starts, builds or evaluates code the agent chose.
+- **runs code** - destructive and open-world: it starts, builds or evaluates code the agent chose. A
+  breakpoint's condition is a C# expression evaluated at every hit, so setting one counts.
 
 The annotations are hints, and a client is free to ignore them.
 
@@ -233,8 +235,8 @@ Needs a one-off setup - see [Debugging a .NET MAUI app](#debugging-a-net-maui-ap
 
 | Tool | What it does | Annotation |
 |---|---|---|
-| `set_breakpoint` | Set or update a breakpoint at a file and line, with an optional condition or hit count | session |
-| `set_function_breakpoint` | Set a breakpoint on a method by name, when the file and line are not known | session |
+| `set_breakpoint` | Set or update a breakpoint at a file and line, with an optional condition or hit count | runs code |
+| `set_function_breakpoint` | Set a breakpoint on a method by name, when the file and line are not known | runs code |
 | `remove_breakpoint` | Remove a breakpoint of either kind | session |
 | `list_breakpoints` | List this session's breakpoints and whether each is verified | read-only |
 | `set_exception_break_mode` | Choose which exceptions stop the program: all, unhandled, or named types | session |
@@ -248,8 +250,8 @@ Needs a one-off setup - see [Debugging a .NET MAUI app](#debugging-a-net-maui-ap
 | `step_over`, `step_into`, `step_out` | Step by line, into a call, or out of the current method | session |
 | `get_threads` | List the threads in the debuggee | read-only |
 | `get_stack_trace` | Read the call stack for a thread | read-only |
-| `get_variables` | Read the locals of a stack frame | read-only |
-| `expand_variable` | Expand an object into its members, which may expand further | read-only |
+| `get_variables` | Read the locals of a stack frame | runs getters |
+| `expand_variable` | Expand an object into its members, which may expand further | runs getters |
 | `evaluate_expression` | Evaluate a C# expression in the context of a frame | runs code |
 | `get_exception_info` | Read the type, message, stack trace and inner exception of what was thrown | runs getters |
 
@@ -364,9 +366,10 @@ anything its user can, an agent able to write and build code can launch what it 
 `Process.Start` in whatever is being debugged. What the check stops is the agent naming a native
 program directly. Treat a client that allows this server's tools as one that allows a shell, and
 confirm `launch_program`, `evaluate_expression`, `build_mobile_app` and `attach_to_process` calls rather
-than approving them automatically. They are annotated as destructive and open-world, together with
-`start_program` and `launch_mobile_app` (see [Tools](#tools)), so a client that honours the annotations
-can be set to ask for those and approve the reads.
+than approving them automatically, along with `set_breakpoint` and `set_function_breakpoint`, whose
+condition is code run at every hit. All of these are annotated as destructive and open-world, together
+with `start_program` and `launch_mobile_app` (see [Tools](#tools)), so a client that honours the
+annotations can be set to ask for those and approve the reads.
 
 ### Attaching to other users' processes
 
@@ -503,7 +506,7 @@ Set these as environment variables in your client's configuration:
 | `DOTNET_DEBUGGER_MCP_LOG_LEVEL` | `Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical` | `Information` |
 | `DOTNET_DEBUGGER_MCP_MAX_SESSIONS` | Sessions open at once, each debugging its own process | `1` |
 | `DOTNET_DEBUGGER_MCP_OPERATION_TIMEOUT_SECONDS` | Bounds attaching, starting, pausing and closing a session. Steps and reads are not bounded | `30` |
-| `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds anything that runs code in the debuggee: `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
+| `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
 | `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
 | `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
 | `DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
