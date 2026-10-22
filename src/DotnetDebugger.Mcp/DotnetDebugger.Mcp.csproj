@@ -39,16 +39,9 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="ModelContextProtocol" />
 
-    <!-- Debugging infrastructure: clrdbg, built from source. It publishes no package, so there is no
-         PackageReference form of this - ClrdbgSourcePath says where the checkout is, see
-         Directory.Build.props.
-         The debugger runs as a child process, so none of its code is linked in - see
-         ChildProcessDebugAdapter, and the BuildClrdbgAdapter target that builds the binary.
-         This one reference is the exception: the HRESULT constants DebuggerErrors explains. They are
-         const, so the compiler bakes the values in and nothing of CorApi is needed at run time. -->
-    <ProjectReference Include="$(ClrdbgSourcePath)\DotNet.Debugging.CorApi\DotNet.Debugging.CorApi.csproj" />
-    <!-- The protocol types are what the adapter is spoken to with, and are ours to bring: clrdbg's
-         own projects reference them without flowing them on -->
+    <!-- Debugging infrastructure: clrdbg runs as a child process, so none of its code is linked in -
+         see ChildProcessDebugAdapter, and Directory.Build.targets for where the binary comes from.
+         The protocol types are what the adapter is spoken to with, and are ours to bring. -->
     <PackageReference Include="Microsoft.VisualStudio.Shared.VSCodeDebugProtocol" />
 
     <!-- Markdown parsing for Phase 1 -->
@@ -69,23 +62,20 @@
 
 
   <!-- The debug adapter travels inside the package, beside the server, because the server starts it as
-       a child process and looks for it there. Added through TargetsForTfmSpecificBuildOutput rather than
-       as None items: the files do not exist until BuildClrdbgAdapter has run, so they cannot be listed
-       ahead of time.
-
-       The apphost is left out on purpose. It is the one file in that output built for the RID of the
-       machine that packed it, and nothing uses it - the adapter is started as 'dotnet clrdbg.dll', which
-       is also what keeps macOS from refusing the debuggee's task port to an unentitled binary. Leaving
-       it behind is what makes this package genuinely platform-agnostic, the native shim being shipped
-       for every platform at once under runtimes/. -->
+       a child process and looks for it there. Added through TargetsForTfmSpecificContentInPackage
+       rather than as None items: the files do not exist until the release is unpacked, or the adapter
+       built from ClrdbgSourcePath, so they cannot be listed ahead of time. -->
   <PropertyGroup>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackClrdbgAdapter;PackRemoteCoreclrLibraries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
-  <Target Name="PackClrdbgAdapter" DependsOnTargets="BuildClrdbgAdapter">
+  <!-- There is no apphost to leave out: framework-dependent, the adapter's csproj turns UseAppHost
+       off, so nothing in it is built for the RID of the machine that packed it. It is started as
+       'dotnet clrdbg.dll', which is also what keeps macOS from refusing the debuggee's task port to an
+       unentitled binary. -->
+  <Target Name="PackClrdbgAdapter" DependsOnTargets="ResolveClrdbgAdapter">
     <ItemGroup>
-      <TfmSpecificPackageFile Include="$(ClrdbgAdapterOutput)/**/*"
-                              Exclude="$(ClrdbgAdapterOutput)/clrdbg">
+      <TfmSpecificPackageFile Include="$(ClrdbgAdapterOutput)/**/*">
         <PackagePath>tools/$(TargetFramework)/any/clrdbg/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>
@@ -95,7 +85,7 @@
        picked by the RID of the machine debugging, the target half by the device being debugged, and
        neither is known when the package is made. The metadata is qualified by an item of its own:
        unqualified, it would batch over the adapter files PackClrdbgAdapter has already added. -->
-  <Target Name="PackRemoteCoreclrLibraries" DependsOnTargets="FetchRemoteCoreclrLibraries">
+  <Target Name="PackRemoteCoreclrLibraries" DependsOnTargets="ResolveRemoteCoreclrLibraries">
     <ItemGroup>
       <_RemoteCoreclrPackFile Include="$(RemoteCoreclrLibrariesFiles)/**/*" />
       <TfmSpecificPackageFile Include="@(_RemoteCoreclrPackFile)">

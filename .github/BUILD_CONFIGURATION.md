@@ -31,8 +31,8 @@ This repository uses [Central Package Management (CPM)](https://learn.microsoft.
 ```
 
 The debugger itself is not among them. It is [clrdbg](https://github.com/JaneySprings/clrdbg), which
-publishes no package: the repository carries it as a git submodule and builds it from source, as
-described under [The Debug Adapter Build](#the-debug-adapter-build). The
+publishes no package: the build takes the debug adapter from one of its GitHub releases, as described
+under [The Debug Adapter](#the-debug-adapter). The
 `Microsoft.VisualStudio.Shared.VSCodeDebugProtocol` package provides the Debug Adapter Protocol types
 the server uses to talk to it.
 
@@ -109,35 +109,50 @@ Projects can override or add properties as needed:
 </PropertyGroup>
 ```
 
-## The Debug Adapter Build
+## The Debug Adapter
 
-The debugger is [clrdbg](https://github.com/JaneySprings/clrdbg), a git submodule at
-`external/clrdbg`. Because it publishes no package, the checkout is the dependency and the build
-compiles it. Clone this repository with `git clone --recurse-submodules`, or run
-`git submodule update --init --recursive` in an existing clone. A build without the submodule fails
-with an error that says which path is missing and how to get it.
+The debugger is [clrdbg](https://github.com/JaneySprings/clrdbg). It publishes no package, but each
+release carries `clrdbg_universal.zip`, the debug adapter built framework-dependent, and the build takes
+it from there.
 
 The server starts the adapter as a child process, `dotnet <output directory>/clrdbg/clrdbg.dll`, and
 speaks the Debug Adapter Protocol over its standard input and output, so the adapter is a binary the
-build has to produce rather than a reference it can link. Running the debugger in a process of its own
-means a native crash inside `libmscordbi` takes down the adapter rather than the server, and on macOS
-the `dotnet` muxer carries the entitlement a debugger needs.
+build has to put beside it rather than a reference it can link. Running the debugger in a process of
+its own means a native crash inside `libmscordbi` takes down the adapter rather than the server, and on
+macOS the `dotnet` muxer carries the entitlement a debugger needs.
 
-### BuildClrdbgAdapter
+### ClrdbgVersion
 
-**Directory.Build.targets** defines the `BuildClrdbgAdapter` target. It runs before `Build` in every
-project that sets `NeedsClrdbgAdapter`, which is the server and the test project. The target builds
-the adapter from the clrdbg checkout and copies the output to `$(OutDir)clrdbg/`, where the server looks
-for it. The adapter is built framework-dependent, and that is what lets one build serve every
-platform: its `runtimes/` folder carries the native DbgShim assets for each supported runtime
-identifier.
+**Directory.Build.props** pins the release with `ClrdbgVersion`, and each of the two zips the build
+takes from it - the adapter and the [remote CoreCLR libraries](#the-remote-coreclr-libraries) - by a
+URL and a SHA-256: `ClrdbgAdapterUrl` and `ClrdbgAdapterSha256`, `RemoteCoreclrLibrariesUrl` and
+`RemoteCoreclrLibrariesSha256`. Both come from the same version, since the remote libraries speak a
+protocol the adapter has to match. Update the version and both hashes together.
+
+clrdbg's release workflow attests the build provenance of every zip. CI checks both against it with
+`scripts/verify-clrdbg-release.sh`, which runs `gh attestation verify` for the release workflow and
+the `ClrdbgVersion` tag, on top of the hash: in the Code Quality job, so a pull request that moves the
+version finds out, and in the Package job before it packs. Run the script locally after a bump.
+
+### FetchClrdbgRelease
+
+**Directory.Build.targets** defines the `FetchClrdbgRelease` target. It downloads each zip a project
+needs into `obj/clrdbg/<version>/` at the repository root, checks its hash and unpacks it beside the
+zip. It does that once per version and hash, so a pin moved to a recreated release fetches again. The
+zips are kept, and the provenance check reads them there. The first build therefore needs network
+access to github.com.
+
+`CopyClrdbgAdapter` copies the adapter to `$(OutDir)clrdbg/` before `Build` in every project that sets
+`NeedsClrdbgAdapter`, which is the server and the test project. Being framework-dependent is what lets
+one adapter serve every platform: its `runtimes/` folder carries the native DbgShim assets for each
+supported runtime identifier.
 
 ### ClrdbgSourcePath
 
-`ClrdbgSourcePath`, defined in **Directory.Build.props**, says which clrdbg checkout to build. It
-defaults to the `external/clrdbg` submodule, which is what CI builds. To build against a clone of your
-own, such as a fork carrying a debugger fix, override it with an environment variable of the same name.
-That applies to every command in the shell:
+To work on the debugger itself, such as a fork carrying a fix, set `ClrdbgSourcePath` to a clrdbg
+checkout. The `BuildClrdbgAdapter` target then builds the adapter from it, framework-dependent, in place
+of the release's. The remote CoreCLR libraries still come from `ClrdbgVersion`, so the checkout has to
+speak their protocol. An environment variable of the same name applies to every command in the shell:
 
 ```bash
 export ClrdbgSourcePath=/path/to/clrdbg
@@ -150,6 +165,9 @@ It can also be passed to a single command:
 dotnet build -p:ClrdbgSourcePath=/path/to/clrdbg
 ```
 
+Only released clrdbg reaches the package CI builds: a fix on clrdbg's `main` waits for a release, or is
+built locally this way.
+
 ### PackClrdbgAdapter
 
 **DotnetDebugger.Mcp.csproj** defines the `PackClrdbgAdapter` target, which puts the adapter in the package
@@ -159,27 +177,22 @@ under `tools/net10.0/any/clrdbg/`, beside the server that starts it. The native 
 ## The Remote CoreCLR Libraries
 
 Debugging a MAUI app takes two native libraries besides the adapter: a target library built into the
-app, and a host library the adapter loads to talk to it. They are part of clrdbg too, but are not
-built here - the host half is NativeAOT for six runtime identifiers and the target half needs Xcode
-and the Android NDK. The build takes them from the `RemoteCoreClrLibraries.zip` asset of a clrdbg
-release instead.
-
-**Directory.Build.props** pins the release with `RemoteCoreclrLibrariesVersion`,
-`RemoteCoreclrLibrariesUrl` and `RemoteCoreclrLibrariesSha256`. Keep the version at the release the
-submodule is at, and update all three when the submodule moves to a new release.
+app, and a host library the adapter loads to talk to it. They are part of clrdbg too, and come from the
+`RemoteCoreClrLibraries.zip` asset of the same release as the adapter, pinned as described under
+[ClrdbgVersion](#clrdbgversion). Unlike the adapter they could not be built here even from a checkout:
+the host half is NativeAOT for six runtime identifiers and the target half needs Xcode and the Android
+NDK.
 
 clrdbg can also drive Visual Studio's remote debugger, and switches to it when either directory holds
 a file with `vsdbg` in its name (`MobileDebugAgent` in clrdbg). This server refuses such a directory
 before the launch reaches clrdbg (`RemoteCoreclrLibraries.Resolve`), so that path stays unreachable.
-The refusal copies clrdbg's rule, so **when the submodule moves, compare the two** and follow any
+The refusal copies clrdbg's rule, so **when `ClrdbgVersion` moves, compare the two** and follow any
 change to how clrdbg recognises Microsoft's libraries.
 
-**Directory.Build.targets** defines `FetchRemoteCoreclrLibraries`, which downloads the zip once per
-version into `obj/remote-coreclr/<version>/` at the repository root, checks its hash and unpacks it,
-and `CopyRemoteCoreclrLibraries`, which copies it to `$(OutDir)remote-coreclr/` before `Build` in every
-project that sets `NeedsRemoteCoreclrLibraries` - the server and the test project. The first build
-therefore needs network access to github.com. **DotnetDebugger.Mcp.csproj** defines
-`PackRemoteCoreclrLibraries`, which puts them in the package under `tools/net10.0/any/remote-coreclr/`.
+`FetchClrdbgRelease` fetches this zip too, and `CopyRemoteCoreclrLibraries` copies it to
+`$(OutDir)remote-coreclr/` before `Build` in every project that sets `NeedsRemoteCoreclrLibraries` -
+the server and the test project. **DotnetDebugger.Mcp.csproj** defines `PackRemoteCoreclrLibraries`,
+which puts them in the package under `tools/net10.0/any/remote-coreclr/`.
 
 ## Build Commands
 
@@ -206,12 +219,10 @@ dotnet build src/DotnetDebugger.Mcp/DotnetDebugger.Mcp.csproj
 dotnet-debugger-mcp/
 ├── Directory.Build.props         # Common build properties
 ├── Directory.Packages.props       # Centralized package versions
-├── Directory.Build.targets        # Builds the debug adapter from clrdbg
+├── Directory.Build.targets        # Fetches the debug adapter from a clrdbg release
 ├── DotnetDebugger.Mcp.slnx       # Solution file (XML format)
 ├── .editorconfig                  # Code style rules
 ├── .gitignore                     # Git ignore patterns
-├── external/
-│   └── clrdbg/                   # Debugger submodule, built from source
 ├── src/
 │   └── DotnetDebugger.Mcp/       # Main project
 └── tests/

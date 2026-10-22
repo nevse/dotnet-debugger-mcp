@@ -538,16 +538,15 @@ dotnet tool exec DotnetDebugger.Mcp --version 0.6.3 --yes
 ## Development
 
 ```bash
-git clone --recurse-submodules https://github.com/nevse/dotnet-debugger-mcp.git
+git clone https://github.com/nevse/dotnet-debugger-mcp.git
 cd dotnet-debugger-mcp
 dotnet build
 dotnet test
 ```
 
-The debugger is a submodule at `external/clrdbg`, and the build compiles it and puts the adapter next
-to the server, so there is no separate step. A clone made without submodules fails the build with a
-message saying so; `git submodule update --init --recursive` is the fix. To build against a different
-clrdbg checkout - a fork carrying a fix, say - point `ClrdbgSourcePath` at it:
+The build takes the debug adapter from the clrdbg release `ClrdbgVersion` names, checks its hash and
+puts it next to the server, so there is no separate step. To build the adapter from a clrdbg checkout
+instead - a fork carrying a fix, say - point `ClrdbgSourcePath` at it:
 
 ```bash
 ClrdbgSourcePath=~/work/clrdbg dotnet build

@@ -25,10 +25,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The debugger is a submodule and the build compiles it, so a shallow checkout of this
-      # repository alone cannot build anything
-      with:
-        submodules: true
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -64,10 +60,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The debugger is a submodule and the build compiles it, so a shallow checkout of this
-      # repository alone cannot build anything
-      with:
-        submodules: true
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -113,12 +105,12 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      attestations: read    # read clrdbg's attestations of its release zips
+
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The debugger is a submodule and the build compiles it, so a shallow checkout of this
-      # repository alone cannot build anything
-      with:
-        submodules: true
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -130,12 +122,9 @@ jobs:
 
     # The checks are allowed to fail so that every one of them runs and reports its
     # findings; the gate below turns the collected results into the job status.
-    # The submodule carries no .editorconfig of its own, so this repository's rules would be applied
-    # to the debugger's sources - which are formatted to its conventions, not ours, and which nothing
-    # here may reformat anyway
     - name: Check format
       id: format
-      run: dotnet format --verify-no-changes --verbosity diagnostic --exclude external/
+      run: dotnet format --verify-no-changes --verbosity diagnostic
       continue-on-error: true
 
     - name: Run code analysis
@@ -150,12 +139,22 @@ jobs:
       run: python3 scripts/readme-version.py lint
       continue-on-error: true
 
+    # Here so a pull request that bumps ClrdbgVersion finds out before a release does. The package
+    # job checks again before it packs.
+    - name: Check the clrdbg release's build provenance
+      id: provenance
+      run: ./scripts/verify-clrdbg-release.sh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      continue-on-error: true
+
     - name: Code quality gate
       if: always()
       env:
         FORMAT_OUTCOME: ${{ steps.format.outcome }}
         ANALYSIS_OUTCOME: ${{ steps.analysis.outcome }}
         PINS_OUTCOME: ${{ steps.pins.outcome }}
+        PROVENANCE_OUTCOME: ${{ steps.provenance.outcome }}
       run: |
         status=0
         if [ "$FORMAT_OUTCOME" != "success" ]; then
@@ -168,6 +167,10 @@ jobs:
         fi
         if [ "$PINS_OUTCOME" != "success" ]; then
           echo "::error title=Pins::An install command names no version (see the Check install commands step)"
+          status=1
+        fi
+        if [ "$PROVENANCE_OUTCOME" != "success" ]; then
+          echo "::error title=Provenance::A clrdbg release zip failed attestation (see the Check the clrdbg release's build provenance step)"
           status=1
         fi
         if [ "$status" -eq 0 ]; then
@@ -194,14 +197,10 @@ jobs:
     permissions:
       id-token: write       # the OIDC token nuget.org trades for a short-lived key, and the attestation's signature
       contents: write       # attach the package to the release
-      attestations: write   # record the build provenance of the package
+      attestations: write   # record the build provenance of the package, and read clrdbg's
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The debugger is a submodule and the build compiles it, so a shallow checkout of this
-      # repository alone cannot build anything
-      with:
-        submodules: true
 
     - name: Setup .NET
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -265,6 +264,13 @@ jobs:
       with:
         name: mcp-manifest
         path: src/DotnetDebugger.Mcp/.mcp/server.json
+
+    # The zips go into the package, so the check that ties them to clrdbg's source runs here too,
+    # on the very files Pack takes from the cache
+    - name: Check the clrdbg release's build provenance
+      run: ./scripts/verify-clrdbg-release.sh
+      env:
+        GH_TOKEN: ${{ github.token }}
 
     - name: Pack
       run: >

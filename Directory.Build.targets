@@ -1,31 +1,105 @@
 <Project>
 
   <!--
-    Builds the debug adapter and puts it beside whatever needs it. The adapter runs as a child process
-    (see ChildProcessDebugAdapter), so it is a binary this build has to produce rather than a reference
-    it can link.
+    Fetches the clrdbg release named by ClrdbgVersion and puts its parts beside whatever needs them.
+    The adapter runs as a child process (see ChildProcessDebugAdapter), so it is a binary that has to
+    sit in the output rather than a reference that can be linked. The remote CoreCLR debugging
+    libraries go to remote-coreclr/remote-host/<rid>/ and remote-coreclr/remote-target/<platform>/<rid>/
+    - the layout the release zip carries, which is also the one the adapter reads. Debugging a MAUI
+    app takes one of each: the target library goes inside the app and the adapter loads the host
+    library to talk to it.
 
-    Built framework-dependent on purpose. Its own csproj asks for SelfContained=true, which produces a
-    per-RID copy of the whole runtime - 101MB for one platform, measured - while framework-dependent is
-    20MB and RID-agnostic, carrying runtimes/*/native/libdbgshim.* for every platform at once. That is
-    the same shape this server already ships as, and its users need the .NET SDK regardless.
+    Each zip is downloaded once per version and pinned hash into the repository's own
+    obj/clrdbg/<version>/, shared by every project and every configuration, and checked against that
+    hash before it is unpacked.
+    The zips are kept there after unpacking: CI verifies their build provenance from that folder. Set
+    NeedsClrdbgAdapter or NeedsRemoteCoreclrLibraries in a project to opt into either.
+  -->
+  <PropertyGroup>
+    <ClrdbgReleaseCache>$(MSBuildThisFileDirectory)obj/clrdbg/$(ClrdbgVersion)</ClrdbgReleaseCache>
+    <RemoteCoreclrLibrariesFiles>$(ClrdbgReleaseCache)/remote-coreclr</RemoteCoreclrLibrariesFiles>
+    <ClrdbgAdapterOutput Condition="'$(ClrdbgSourcePath)' == ''">$(ClrdbgReleaseCache)/adapter</ClrdbgAdapterOutput>
+    <!-- Per project and configuration, so a Debug and a Release build do not overwrite each other in
+         the clone's out/ -->
+    <ClrdbgAdapterOutput Condition="'$(ClrdbgSourcePath)' != ''">$(MSBuildProjectDirectory)/obj/clrdbg-adapter/$(Configuration)</ClrdbgAdapterOutput>
+  </PropertyGroup>
 
-    The inner build is left to decide for itself whether anything changed; it no-ops in about a second
-    when nothing has. Set NeedsClrdbgAdapter in a project to opt into this.
+  <ItemGroup>
+    <ClrdbgReleaseAsset Include="clrdbg_universal.zip"
+                        Condition="'$(NeedsClrdbgAdapter)' == 'true' AND '$(ClrdbgSourcePath)' == ''">
+      <Url>$(ClrdbgAdapterUrl)</Url>
+      <Sha256>$(ClrdbgAdapterSha256)</Sha256>
+      <Files>$(ClrdbgAdapterOutput)</Files>
+    </ClrdbgReleaseAsset>
+    <ClrdbgReleaseAsset Include="RemoteCoreClrLibraries.zip"
+                        Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
+      <Url>$(RemoteCoreclrLibrariesUrl)</Url>
+      <Sha256>$(RemoteCoreclrLibrariesSha256)</Sha256>
+      <Files>$(RemoteCoreclrLibrariesFiles)</Files>
+    </ClrdbgReleaseAsset>
+  </ItemGroup>
+
+  <!-- Runs once per asset: Outputs batches the target over the items, so one set of steps serves both -->
+  <Target Name="FetchClrdbgRelease" Outputs="%(ClrdbgReleaseAsset.Identity)">
+    <PropertyGroup>
+      <_ClrdbgReleaseZip>$(ClrdbgReleaseCache)/%(ClrdbgReleaseAsset.Identity)</_ClrdbgReleaseZip>
+      <!-- Written last, so an interrupted download or unpack is redone rather than half-used. Named
+           by the pinned hash, not only the version: clrdbg has recreated a release in place before,
+           and a pin moved to the new hash has to refetch and verify rather than reuse what is here. -->
+      <_ClrdbgReleaseStamp>%(ClrdbgReleaseAsset.Files).%(ClrdbgReleaseAsset.Sha256).stamp</_ClrdbgReleaseStamp>
+    </PropertyGroup>
+
+    <!-- The stamps of other pins go first, before anything they vouched for is touched: the zip is
+         shared by every pin of a version, so a fetch that fails after this point must not leave one
+         to be found if the pin moves back -->
+    <ItemGroup Condition="!Exists('$(_ClrdbgReleaseStamp)')">
+      <_ClrdbgReleaseStaleStamp Remove="@(_ClrdbgReleaseStaleStamp)" />
+      <_ClrdbgReleaseStaleStamp Include="%(ClrdbgReleaseAsset.Files).*.stamp" />
+    </ItemGroup>
+    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="@(_ClrdbgReleaseStaleStamp)" />
+
+    <!-- DownloadFile skips a file it takes for unchanged by size and date, which would keep the zip
+         the old pin left behind -->
+    <Delete Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="$(_ClrdbgReleaseZip)" />
+
+    <DownloadFile Condition="!Exists('$(_ClrdbgReleaseStamp)')"
+                  SourceUrl="%(ClrdbgReleaseAsset.Url)"
+                  DestinationFolder="$(ClrdbgReleaseCache)"
+                  DestinationFileName="%(ClrdbgReleaseAsset.Identity)"
+                  Retries="3" />
+
+    <VerifyFileHash Condition="!Exists('$(_ClrdbgReleaseStamp)')"
+                    File="$(_ClrdbgReleaseZip)"
+                    Algorithm="SHA256"
+                    Hash="%(ClrdbgReleaseAsset.Sha256)" />
+
+    <RemoveDir Condition="!Exists('$(_ClrdbgReleaseStamp)')" Directories="%(ClrdbgReleaseAsset.Files)" />
+
+    <Unzip Condition="!Exists('$(_ClrdbgReleaseStamp)')"
+           SourceFiles="$(_ClrdbgReleaseZip)"
+           DestinationFolder="%(ClrdbgReleaseAsset.Files)" />
+
+    <Touch Condition="!Exists('$(_ClrdbgReleaseStamp)')" Files="$(_ClrdbgReleaseStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <!--
+    Builds the adapter from the clone ClrdbgSourcePath names, in place of the release's, for working on
+    the debugger itself. Built framework-dependent, the shape the release ships: its own csproj asks
+    for SelfContained=true, which produces a per-RID copy of the whole runtime - 101MB for one
+    platform, measured. The inner build is left to decide for itself whether anything changed; it
+    no-ops in about a second when nothing has.
   -->
   <PropertyGroup>
     <ClrdbgAdapterProject>$(ClrdbgSourcePath)/DotNet.Debugging.Adapter/DotNet.Debugging.Adapter.csproj</ClrdbgAdapterProject>
-    <ClrdbgAdapterOutput>$(MSBuildProjectDirectory)/obj/clrdbg-adapter/$(Configuration)</ClrdbgAdapterOutput>
   </PropertyGroup>
 
-  <Target Name="BuildClrdbgAdapter" BeforeTargets="Build" Condition="'$(NeedsClrdbgAdapter)' == 'true'">
+  <Target Name="BuildClrdbgAdapter" Condition="'$(NeedsClrdbgAdapter)' == 'true' AND '$(ClrdbgSourcePath)' != ''">
     <Error Condition="!Exists('$(ClrdbgAdapterProject)')"
-           Text="The debugger is missing at $(ClrdbgSourcePath). It is a git submodule: run 'git submodule update --init', or point ClrdbgSourcePath at a checkout of your own." />
+           Text="ClrdbgSourcePath is $(ClrdbgSourcePath), which has no DotNet.Debugging.Adapter project. Point it at a clrdbg checkout, or unset it to use the $(ClrdbgVersion) release." />
 
-    <!-- OutputPath is redirected here so a Debug and a Release build of this repository do not
-         overwrite each other in the submodule's out/. It is set as a global property, which wins
-         over the fixed path the adapter's csproj gives it, and so also lands the projects it
-         references here - where copying them as its dependencies would put them anyway. -->
+    <!-- OutputPath is set as a global property, which wins over the fixed path the adapter's csproj
+         gives it, and so also lands the projects it references here - where copying them as its
+         dependencies would put them anyway. -->
     <!-- The child gets its own MSBuild nodes and no inherited MSBUILD_EXE_PATH. Both halves are
          load-bearing and both were measured: under 'dotnet test' the nested build otherwise deadlocks,
          spawning no child process and never returning, while the same command with this target
@@ -36,68 +110,39 @@
     <Exec Command="dotnet build &quot;$(ClrdbgAdapterProject)&quot; -c $(Configuration) -nodeReuse:false -p:SelfContained=false -p:OutputPath=&quot;$(ClrdbgAdapterOutput)/&quot;"
           StandardOutputImportance="low"
           EnvironmentVariables="MSBUILD_EXE_PATH=;MSBUILDDISABLENODEREUSE=1" />
+  </Target>
 
+  <!-- Whichever of the two produced it, the adapter ends up in ClrdbgAdapterOutput -->
+  <Target Name="ResolveClrdbgAdapter"
+          DependsOnTargets="FetchClrdbgRelease;BuildClrdbgAdapter"
+          Condition="'$(NeedsClrdbgAdapter)' == 'true'">
+    <Error Condition="!Exists('$(ClrdbgAdapterOutput)/clrdbg.dll')"
+           Text="There is no clrdbg.dll in $(ClrdbgAdapterOutput). If it is the release's, delete $(ClrdbgReleaseCache) and build again." />
+  </Target>
+
+  <Target Name="CopyClrdbgAdapter"
+          BeforeTargets="Build"
+          DependsOnTargets="ResolveClrdbgAdapter"
+          Condition="'$(NeedsClrdbgAdapter)' == 'true'">
     <ItemGroup>
       <ClrdbgAdapterFiles Include="$(ClrdbgAdapterOutput)/**/*" />
     </ItemGroup>
-
-    <Error Condition="!Exists('$(ClrdbgAdapterOutput)/clrdbg.dll')"
-           Text="The debug adapter build produced no clrdbg.dll in $(ClrdbgAdapterOutput)." />
 
     <Copy SourceFiles="@(ClrdbgAdapterFiles)"
           DestinationFiles="@(ClrdbgAdapterFiles->'$(OutDir)clrdbg/%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
-  <!--
-    Fetches the remote CoreCLR debugging libraries and puts them beside whatever needs them, as
-    remote-coreclr/remote-host/<rid>/ and remote-coreclr/remote-target/<platform>/<rid>/ - the layout
-    the release zip carries, which is also the one the adapter reads. Debugging a MAUI app takes one
-    of each: the target library goes inside the app and the adapter loads the host library to talk
-    to it.
-
-    Downloaded once per version into the repository's own obj/, shared by every project and every
-    configuration, and checked against the pinned hash before it is unpacked. Set
-    NeedsRemoteCoreclrLibraries in a project to opt into this.
-  -->
-  <PropertyGroup>
-    <RemoteCoreclrLibrariesCache>$(MSBuildThisFileDirectory)obj/remote-coreclr/$(RemoteCoreclrLibrariesVersion)</RemoteCoreclrLibrariesCache>
-    <RemoteCoreclrLibrariesFiles>$(RemoteCoreclrLibrariesCache)/files</RemoteCoreclrLibrariesFiles>
-  </PropertyGroup>
-
-  <Target Name="FetchRemoteCoreclrLibraries" Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
-    <PropertyGroup>
-      <_RemoteCoreclrLibrariesZip>$(RemoteCoreclrLibrariesCache)/RemoteCoreClrLibraries.zip</_RemoteCoreclrLibrariesZip>
-      <!-- Written last, so an interrupted download or unpack is redone rather than half-used -->
-      <_RemoteCoreclrLibrariesStamp>$(RemoteCoreclrLibrariesCache)/unpacked.stamp</_RemoteCoreclrLibrariesStamp>
-    </PropertyGroup>
-
-    <DownloadFile Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
-                  SourceUrl="$(RemoteCoreclrLibrariesUrl)"
-                  DestinationFolder="$(RemoteCoreclrLibrariesCache)"
-                  DestinationFileName="RemoteCoreClrLibraries.zip"
-                  Retries="3" />
-
-    <VerifyFileHash Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
-                    File="$(_RemoteCoreclrLibrariesZip)"
-                    Algorithm="SHA256"
-                    Hash="$(RemoteCoreclrLibrariesSha256)" />
-
-    <RemoveDir Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Directories="$(RemoteCoreclrLibrariesFiles)" />
-
-    <Unzip Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')"
-           SourceFiles="$(_RemoteCoreclrLibrariesZip)"
-           DestinationFolder="$(RemoteCoreclrLibrariesFiles)" />
-
-    <Touch Condition="!Exists('$(_RemoteCoreclrLibrariesStamp)')" Files="$(_RemoteCoreclrLibrariesStamp)" AlwaysCreate="true" />
-
+  <Target Name="ResolveRemoteCoreclrLibraries"
+          DependsOnTargets="FetchClrdbgRelease"
+          Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
     <Error Condition="!Exists('$(RemoteCoreclrLibrariesFiles)/remote-host') OR !Exists('$(RemoteCoreclrLibrariesFiles)/remote-target')"
-           Text="$(RemoteCoreclrLibrariesUrl) unpacked without remote-host/ and remote-target/ into $(RemoteCoreclrLibrariesFiles). Delete $(RemoteCoreclrLibrariesCache) and build again." />
+           Text="$(RemoteCoreclrLibrariesUrl) unpacked without remote-host/ and remote-target/ into $(RemoteCoreclrLibrariesFiles). Delete $(ClrdbgReleaseCache) and build again." />
   </Target>
 
   <Target Name="CopyRemoteCoreclrLibraries"
           BeforeTargets="Build"
-          DependsOnTargets="FetchRemoteCoreclrLibraries"
+          DependsOnTargets="ResolveRemoteCoreclrLibraries"
           Condition="'$(NeedsRemoteCoreclrLibraries)' == 'true'">
     <ItemGroup>
       <RemoteCoreclrLibraryFiles Include="$(RemoteCoreclrLibrariesFiles)/**/*" />

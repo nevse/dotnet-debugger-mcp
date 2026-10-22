@@ -74,8 +74,8 @@ internal static class ChildProcessDebugAdapter
         return File.Exists(beside)
             ? beside
             : throw new FileNotFoundException(
-                $"The debug adapter was not found at {beside}. It is built and copied there by the "
-                + $"BuildClrdbgAdapter target; set {PathVariable} to use one built elsewhere.", beside);
+                $"The debug adapter was not found at {beside}. It is copied there from the clrdbg release "
+                + $"by the CopyClrdbgAdapter target; set {PathVariable} to use one built elsewhere.", beside);
     }
 
     /// <summary>

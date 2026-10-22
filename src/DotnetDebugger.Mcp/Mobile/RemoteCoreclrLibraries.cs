@@ -70,8 +70,8 @@ public sealed record RemoteCoreclrLibraries(string HostDirectory, string TargetD
     /// <summary>
     /// Refuses a directory clrdbg would take for Visual Studio's remote debugger. The rule is
     /// clrdbg's own, copied from MobileDebugAgent: any file anywhere below it with "vsdbg" in its
-    /// name, in any case. Checking less than clrdbg does would leave the path open, so when the
-    /// submodule moves, this has to be compared with that rule again.
+    /// name, in any case. Checking less than clrdbg does would leave the path open, so when
+    /// ClrdbgVersion moves, this has to be compared with that rule again.
     /// </summary>
     private static void RefuseVisualStudioDebugger(string directory)
     {

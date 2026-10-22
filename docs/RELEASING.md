@@ -4,9 +4,10 @@ A release is a git tag and a GitHub Release. `ci.yml` does the rest in two jobs:
 version from the tag, stamps it into `.mcp/server.json`, packs and pushes to nuget.org; `registry`
 then publishes that same manifest to the MCP Registry.
 
-The package carries the debug adapter, built from the `external/clrdbg` submodule during the pack, so
-every job in `ci.yml` checks the repository out with `submodules: true`. A checkout without them fails
-the build rather than shipping a package with no debugger in it.
+The package carries the debug adapter and the remote CoreCLR libraries from the clrdbg release
+`ClrdbgVersion` names. The build checks each zip against its pinned SHA-256, and before it packs, the
+`package` job checks both against the build provenance clrdbg attested for them, with
+`scripts/verify-clrdbg-release.sh`. A zip that fails either check stops the release.
 
 Nothing here holds a NuGet API key. Publishing uses
 [trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing): the
