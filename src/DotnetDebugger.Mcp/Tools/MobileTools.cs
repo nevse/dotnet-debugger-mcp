@@ -42,7 +42,7 @@ public sealed class MobileTools
 
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "List the devices, emulators and simulators a .NET MAUI app can be built for and debugged " +
         "on: Android emulators and phones, iOS simulators and devices, and this Mac as a Mac " +
         "Catalyst target. The id is what build_mobile_app and launch_mobile_app take. An Android " +
@@ -81,7 +81,7 @@ public sealed class MobileTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Build a .NET MAUI project for a device so that it can be debugged, which an ordinary " +
         "'dotnet build' does not produce: the app is built against CoreCLR rather than Mono and " +
         "carries the remote debugging library inside it. Pass the project's .csproj and a device " +
@@ -137,7 +137,7 @@ public sealed class MobileTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Prepare a built .NET MAUI app for debugging on a device without starting it yet, the way " +
         "launch_program does for a desktop program: set breakpoints now - they will be in place " +
         "before the app's first line runs - and then call start_program. Build it with " +

@@ -35,7 +35,7 @@ public sealed class DebuggingTools
     }
 
     // Name pinned: the SDK would turn ListDotNetProcesses into list_dot_net_processes
-    [McpServerTool(Name = "list_dotnet_processes"), Description(
+    [McpServerTool(Name = "list_dotnet_processes", ReadOnly = true, OpenWorld = false), Description(
         "List all .NET processes currently running on the system. owner tells you whether a process " +
         "belongs to the user running this server: attaching is refused for 'other_user' and " +
         "'unknown' unless DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES is set.")]
@@ -72,7 +72,7 @@ public sealed class DebuggingTools
         _ => "unknown"
     };
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Attach the debugger to a .NET process by process ID. Attaching while another process is " +
         "already being debugged opens a second session instead of failing, up to " +
         "DOTNET_DEBUGGER_MCP_MAX_SESSIONS (one by default). The session_id in the response is what the other " +
@@ -133,7 +133,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Launch a .NET program under the debugger without running it yet. This is the only way to " +
         "debug what happens at startup: breakpoints set now are in place before the first line " +
         "executes. Pass the built program - the .dll or the executable next to it - not a project " +
@@ -208,7 +208,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Run the program prepared by launch_program. Returns as soon as it is running, which can be " +
         "after it has already hit a breakpoint; use wait_for_stop to catch that. process_id is the " +
         "program the debugger started, reported from the moment it exists; it is null if the debugger " +
@@ -242,7 +242,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "Read what the debuggee has written to stdout and stderr, oldest line first. Only a " +
         "launched program's output is captured - a process attached to with attach_to_process keeps " +
         "its own console, and nothing appears here. Returns at most max_lines (default 100) of the " +
@@ -272,7 +272,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "Wait for the debuggee to stop and return the same fields as get_process_status. Blocks " +
         "until a breakpoint is hit, a step completes, the process is paused or throws, or the " +
         "process exits, and gives up after timeout_ms (default 10000, maximum 300000). " +
@@ -329,7 +329,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Control which exceptions suspend the debuggee. " +
         "mode 'always' (the default) stops on every throw, including ones the program catches itself, " +
         "so a program that uses exceptions routinely suspends constantly. " +
@@ -386,7 +386,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Read the exception the debuggee is stopped on: its type, message, the stack trace it " +
         "carries and the exception it wraps. Nothing else reports these - a stop with stop_reason " +
         "'exception' names neither the type nor the message - so this is what turns one into " +
@@ -491,7 +491,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "Get the status of a debug session. Omit session_id unless more than one session is open, in " +
         "which case list_sessions shows which is which.")]
     public string GetProcessStatus(int? session_id = null)
@@ -546,7 +546,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "List the open debug sessions, which is how you find the session_id to pass to the other " +
         "tools. A session is created by attach_to_process or launch_program and lives until " +
         "close_session or detach. started=false means the program is launched and waiting to run.")]
@@ -587,7 +587,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = false), Description(
         "Close a debug session, detaching from its process if it is still attached. A program this " +
         "session launched is killed, but the debugger does not always confirm it: program_may_be_running " +
         "is true when it did not, and the program may have survived, so check it. An attached process " +
@@ -646,7 +646,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = false), Description(
         "Detach the debugger from a session's process, leaving that process running. A program the " +
         "session launched is killed instead: it exists only for this session. " +
         "program_may_be_running is true when the debugger never confirmed the terminate, meaning the " +
@@ -705,7 +705,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Set a breakpoint at a specific file and line number. " +
         "Optionally pass condition, a C# expression evaluated in the frame that must be true to " +
         "stop, and/or hit_condition, a hit count in the form '5', '==5', '>5', '>=5', '<5', '<=5' " +
@@ -763,7 +763,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Set a breakpoint on a method by name, for when the method is known but the file and line " +
         "are not. " +
         "function_name accepts 'Method', 'Type.Method' or 'Namespace.Type.Method'; the type part " +
@@ -825,7 +825,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Remove a previously set breakpoint by its ID, whether it was set with set_breakpoint or " +
         "set_function_breakpoint")]
     public string RemoveBreakpoint(int breakpoint_id, int? session_id = null)
@@ -865,7 +865,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("List all breakpoints currently set in the debug session")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("List all breakpoints currently set in the debug session")]
     public string ListBreakpoints(int? session_id = null)
     {
         try
@@ -920,7 +920,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Get the call stack for a specific thread ID")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Get the call stack for a specific thread ID")]
     public string GetStackTrace(int thread_id, int? session_id = null)
     {
         try
@@ -968,7 +968,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Get all threads in the attached process")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Get all threads in the attached process")]
     public string GetThreads(int? session_id = null)
     {
         try
@@ -1007,7 +1007,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Get local variables for a specific stack frame ID")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Get local variables for a specific stack frame ID")]
     public string GetVariables(int frame_id, int? session_id = null)
     {
         try
@@ -1053,7 +1053,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description(
         "Expand a variables_reference into its members, which may themselves carry references to " +
         "expand further. References come from get_variables, from evaluate_expression and from this " +
         "tool. Expand while still stopped - a reference only applies to the stop it was taken in.")]
@@ -1101,7 +1101,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Continue execution until the next breakpoint or process exit")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Continue execution until the next breakpoint or process exit")]
     public string ContinueExecution(int? session_id = null)
     {
         try
@@ -1138,7 +1138,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Pause execution (break into debugger at current location)")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Pause execution (break into debugger at current location)")]
     public string PauseExecution(int? session_id = null)
     {
         try
@@ -1201,7 +1201,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Step over the current line (execute and stop at next line in same method)")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Step over the current line (execute and stop at next line in same method)")]
     public string StepOver(int thread_id, int? session_id = null)
     {
         try
@@ -1238,7 +1238,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Step into the current line (enter called methods)")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Step into the current line (enter called methods)")]
     public string StepInto(int thread_id, int? session_id = null)
     {
         try
@@ -1275,7 +1275,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description("Step out of the current method (execute until return)")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description("Step out of the current method (execute until return)")]
     public string StepOut(int thread_id, int? session_id = null)
     {
         try
@@ -1312,7 +1312,7 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Evaluate a C# expression in the context of a stack frame. An expression that runs code in " +
         "the target - a property getter, ToString(), any method call - is allowed and does not cost " +
         "the session. When the result is an object, variables_reference is non-zero and can be " +
