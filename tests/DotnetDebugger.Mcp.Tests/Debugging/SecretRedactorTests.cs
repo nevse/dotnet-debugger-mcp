@@ -73,7 +73,7 @@ public class SecretRedactorTests
     [TestMethod]
     public void Value_WithAnInnocentName_StillHasItsPatternsMasked()
     {
-        var shown = On().Value("header", "string", "\"Bearer abcdefghijklmnop\"", 0);
+        var shown = On().Value("header", "string", "\"Bearer abc123def456ghij\"", 0);
 
         Assert.AreEqual("\"Bearer [redacted: 16 chars]\"", shown);
     }
@@ -84,18 +84,20 @@ public class SecretRedactorTests
         var redactor = new SecretRedactor(enabled: false);
 
         Assert.AreEqual("\"hunter2\"", redactor.Value("password", "string", "\"hunter2\"", 0));
-        Assert.AreEqual("Bearer abcdefghijklmnop", redactor.Text("Bearer abcdefghijklmnop"));
+        Assert.AreEqual("Bearer abc123def456ghij", redactor.Text("Bearer abc123def456ghij"));
         Assert.AreEqual(0, redactor.Count);
     }
 
     [TestMethod]
-    [DataRow("Authorization: Bearer abcdefghijklmnop", "Authorization: Bearer [redacted: 16 chars]")]
+    [DataRow("Authorization: Bearer abc123def456ghij", "Authorization: Bearer [redacted: 16 chars]")]
     [DataRow("Basic dXNlcjpwYXNzd29yZA==", "Basic [redacted: 20 chars]")]
     [DataRow("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl ok",
         "jwt [redacted: 49 chars] ok")]
     [DataRow("Server=db;User Id=sa;Password=hunter2;Encrypt=true",
         "Server=db;User Id=sa;Password=[redacted: 7 chars];Encrypt=true")]
     [DataRow("Host=db;Pwd=hunter2", "Host=db;Pwd=[redacted: 7 chars]")]
+    [DataRow("Server=db;Password=\"hun;ter2\";Encrypt=true", "Server=db;Password=\"[redacted: 8 chars]\";Encrypt=true")]
+    [DataRow("Server=db;Password='hunter2'", "Server=db;Password='[redacted: 7 chars]'")]
     [DataRow("https://acct.blob.core.windows.net/c?sv=2022&sig=abcDEF123%3D&se=1",
         "https://acct.blob.core.windows.net/c?sv=2022&sig=[redacted: 12 chars]&se=1")]
     [DataRow("key sk-abcdefghijklmnopqrstuvwx", "key [redacted: 27 chars]")]
@@ -119,10 +121,50 @@ public class SecretRedactorTests
     {
         var redactor = On();
 
-        var shown = redactor.Text("Password=a1b2c3 and Bearer abcdefghijklmnop");
+        var shown = redactor.Text("Password=a1b2c3 and Bearer abc123def456ghij");
 
         Assert.AreEqual("Password=[redacted: 6 chars] and Bearer [redacted: 16 chars]", shown);
         Assert.AreEqual(2, redactor.Count);
+    }
+
+    [TestMethod]
+    public void Text_ASecretTwoPatternsRecognise_IsMaskedOnce()
+    {
+        // The JWT pattern and the access_token= one both find it; the mask must not be masked again
+        var redactor = On();
+
+        var shown = redactor.Text("GET /hub?access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl&x=1");
+
+        Assert.AreEqual("GET /hub?access_token=[redacted: 49 chars]&x=1", shown);
+        Assert.AreEqual(1, redactor.Count);
+    }
+
+    [TestMethod]
+    public void Lines_APemKeyOverSeveralLines_IsMaskedAndEveryLineKeepsItsPlace()
+    {
+        var redactor = On();
+        string[] lines =
+        [
+            "loading key",
+            "-----BEGIN PRIVATE KEY-----",
+            "MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu",
+            "-----END PRIVATE KEY-----",
+            "done",
+        ];
+
+        var shown = redactor.Lines(lines);
+
+        var keyLength = string.Join('\n', lines[1..4]).Length;
+        CollectionAssert.AreEqual(new[] { "loading key", $"[redacted: {keyLength} chars]", "", "", "done" }, shown.ToArray());
+        Assert.AreEqual(1, redactor.Count);
+    }
+
+    [TestMethod]
+    public void Lines_ALineHoldingNewlinesOfItsOwn_StaysOneLine()
+    {
+        var shown = On().Lines(["first\nPassword=hunter2", "tick 5"]);
+
+        CollectionAssert.AreEqual(new[] { "first\nPassword=[redacted: 7 chars]", "tick 5" }, shown.ToArray());
     }
 
     [TestMethod]
@@ -130,6 +172,9 @@ public class SecretRedactorTests
     [DataRow("PID=1234")]
     [DataRow("The token was rejected")]
     [DataRow("password reset sent")]
+    [DataRow("Basic authentication failed for user bob")]
+    [DataRow("Basic settings loaded")]
+    [DataRow("Bearer authentication is not configured")]
     public void Text_OrdinaryOutput_IsLeftAlone(string text)
     {
         Assert.AreEqual(text, On().Text(text));

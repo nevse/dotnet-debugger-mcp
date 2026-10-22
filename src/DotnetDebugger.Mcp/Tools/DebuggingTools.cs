@@ -259,7 +259,22 @@ public sealed class DebuggingTools
             var lines = session.ReadOutput(max_lines);
             var redactor = new SecretRedactor(_configuration.RedactSecrets);
 
-            var output = lines.Select(l => new { text = redactor.Text(l.Text), stream = l.IsError ? "stderr" : "stdout" }).ToList();
+            // Masked a run of one stream at a time, so a secret printed over several lines is seen
+            // whole and the two streams never join into one
+            var output = new List<object>(lines.Count);
+
+            for (var start = 0; start < lines.Count;)
+            {
+                var end = start + 1;
+                while (end < lines.Count && lines[end].IsError == lines[start].IsError)
+                    end++;
+
+                var stream = lines[start].IsError ? "stderr" : "stdout";
+                var run = lines.Skip(start).Take(end - start).Select(l => l.Text).ToList();
+
+                output.AddRange(redactor.Lines(run).Select(text => new { text, stream }));
+                start = end;
+            }
 
             var response = new
             {
@@ -1382,7 +1397,7 @@ public sealed class DebuggingTools
         catch (Exception ex)
         {
             // The debugger's message can quote the value it failed on
-            return new SecretRedactor(_configuration.RedactSecrets).Text(DebuggerErrors.ErrorResponse(ex));
+            return DebuggerErrors.ErrorResponse(ex, new SecretRedactor(_configuration.RedactSecrets));
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
+using DotnetDebugger.Mcp.Debugging;
 using DotnetDebugger.Mcp.Tools;
 
 namespace DotnetDebugger.Mcp.Tests.Tools;
@@ -99,5 +100,26 @@ public class DebuggerErrorsTests
 
         Assert.IsFalse(root.GetProperty("success").GetBoolean());
         Assert.AreEqual(JsonValueKind.Null, root.GetProperty("explanation").ValueKind);
+    }
+
+    /// <summary>
+    /// An evaluation's failure can quote the value it failed on. It is masked before it is
+    /// serialized: escaped as JSON, the + in a base64 credential would cut it where the pattern
+    /// stops, and the length would count the escapes.
+    /// </summary>
+    [TestMethod]
+    public void ErrorResponse_WithARedactor_MasksTheMessageBeforeItIsSerialized()
+    {
+        var json = DebuggerErrors.ErrorResponse(
+            new FormatException("The input string 'Basic dXNl+cjpwYXNzd29yZA==' was not in a correct format."),
+            new SecretRedactor(enabled: true));
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        Assert.AreEqual(
+            "The input string 'Basic [redacted: 21 chars]' was not in a correct format.",
+            root.GetProperty("error").GetString());
+        Assert.AreEqual(1, root.GetProperty("redacted").GetInt32());
     }
 }

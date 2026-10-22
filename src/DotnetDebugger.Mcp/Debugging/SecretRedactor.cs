@@ -30,21 +30,24 @@ public sealed class SecretRedactor
     private const RegexOptions Options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 
     // Each pattern's group "secret" is what gets masked; anything around it stays, so the reader can
-    // see a bearer token or a password was there.
-    private static readonly Regex[] SecretPatterns =
+    // see a bearer token or a password was there. A secret shorter than its pattern's minimum is
+    // left alone: the length a pattern can demand is limited without lookaround.
+    private static readonly (Regex Pattern, int MinLength)[] SecretPatterns =
     [
-        // Authorization header values
-        new(@"\b(?:Bearer|Basic)\s+(?<secret>[A-Za-z0-9\-._~+/]{8,}=*)", Options),
+        // Authorization header values. The credential has to hold a digit or a token character, so
+        // "Basic authentication failed" is the English it looks like.
+        (new(@"\b(?:Bearer|Basic)\s+(?<secret>[A-Za-z0-9\-._~+/]*[0-9\-._~+/][A-Za-z0-9\-._~+/]*=*)", Options), 8),
         // JWTs: a base64url JSON header, a payload and an optional signature
-        new(@"(?<secret>\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*)", Options),
-        // key=value in connection strings and query strings, up to the separator
-        new(@"\b(?:password|pwd|secret|client_?secret|token|access_?token|api_?key|access_?key|account_?key|sig)\s*=\s*(?<secret>[^;&\s""']+)",
-            Options | RegexOptions.IgnoreCase),
+        (new(@"(?<secret>\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*)", Options), 1),
+        // key=value in connection strings and query strings: a quoted value up to its closing quote,
+        // an unquoted one up to the separator
+        (new(@"\b(?:password|pwd|secret|client_?secret|token|access_?token|api_?key|access_?key|account_?key|sig)\s*=\s*(?:""(?<secret>[^""]+)""|'(?<secret>[^']+)'|(?<secret>[^;&\s""']+))",
+            Options | RegexOptions.IgnoreCase), 1),
         // Provider keys recognisable by their prefix
-        new(@"(?<secret>\b(?:sk-[A-Za-z0-9_\-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35}))",
-            Options),
+        (new(@"(?<secret>\b(?:sk-[A-Za-z0-9_\-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35}))",
+            Options), 1),
         // PEM private keys. The body is base64, which holds no dash.
-        new(@"(?<secret>-----BEGIN [A-Z ]*PRIVATE KEY-----[^\-]*-----END [A-Z ]*PRIVATE KEY-----)", Options),
+        (new(@"(?<secret>-----BEGIN [A-Z ]*PRIVATE KEY-----[^\-]*-----END [A-Z ]*PRIVATE KEY-----)", Options), 1),
     ];
 
     private readonly bool _enabled;
@@ -82,26 +85,84 @@ public sealed class SecretRedactor
     /// Free text - program output, an exception's message or trace - with every recognisable secret
     /// in it masked
     /// </summary>
-    public string Text(string text)
+    public string Text(string text) => Redact(text, keepLines: false);
+
+    /// <summary>
+    /// Lines of output, masked as one text so a secret printed over several lines - a PEM key - is
+    /// still seen whole. Every line keeps its place: a masked span that covered several lines leaves
+    /// the mask on its first and the others empty.
+    /// </summary>
+    public IReadOnlyList<string> Lines(IReadOnlyList<string> lines)
+    {
+        if (!_enabled || lines.Count == 0)
+            return lines;
+
+        var masked = Redact(string.Join('\n', lines), keepLines: true).Split('\n');
+
+        // A line can hold newlines of its own, so put back as many pieces as each one had
+        var result = new List<string>(lines.Count);
+        var next = 0;
+
+        foreach (var line in lines)
+        {
+            var pieces = line.Count(c => c == '\n') + 1;
+            result.Add(string.Join('\n', masked, next, pieces));
+            next += pieces;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Every pattern runs on the original text and the spans they find are merged before anything is
+    /// replaced, so a secret two patterns both recognise - a JWT after access_token= - is masked
+    /// once, and no pattern ever reads another's mask.
+    /// </summary>
+    private string Redact(string text, bool keepLines)
     {
         if (!_enabled || string.IsNullOrEmpty(text))
             return text;
 
-        foreach (var pattern in SecretPatterns)
+        var spans = new List<(int Start, int End)>();
+
+        foreach (var (pattern, minLength) in SecretPatterns)
         {
-            text = pattern.Replace(text, match =>
+            foreach (Match match in pattern.Matches(text))
             {
                 var secret = match.Groups["secret"];
-                Count++;
 
-                return string.Concat(
-                    match.Value.AsSpan(0, secret.Index - match.Index),
-                    Mask(secret.Length),
-                    match.Value.AsSpan(secret.Index - match.Index + secret.Length));
-            });
+                if (secret.Success && secret.Length >= minLength)
+                    spans.Add((secret.Index, secret.Index + secret.Length));
+            }
         }
 
-        return text;
+        if (spans.Count == 0)
+            return text;
+
+        spans.Sort();
+
+        var result = new System.Text.StringBuilder(text.Length);
+        var position = 0;
+        var index = 0;
+
+        while (index < spans.Count)
+        {
+            var (start, end) = spans[index++];
+
+            while (index < spans.Count && spans[index].Start < end)
+                end = Math.Max(end, spans[index++].End);
+
+            result.Append(text, position, start - position);
+            result.Append(Mask(end - start));
+
+            if (keepLines)
+                result.Append('\n', text.AsSpan(start, end - start).Count('\n'));
+
+            Count++;
+            position = end;
+        }
+
+        return result.Append(text, position, text.Length - position).ToString();
     }
 
     /// <summary>

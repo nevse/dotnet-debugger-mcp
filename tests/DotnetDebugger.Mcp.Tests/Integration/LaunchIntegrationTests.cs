@@ -401,7 +401,7 @@ public sealed class LaunchIntegrationTests
     [TestMethod]
     public void EvaluateExpression_ABearerToken_IsMaskedUnlessRedactionIsOff()
     {
-        const string expression = "\"Bearer \" + \"abcdefghijklmnop\"";
+        const string expression = "\"Bearer \" + \"abc123def456ghij\"";
         var line = TestPaths.FindMarkerLine("BREAKPOINT-TARGET");
 
         var configuration = new ServerConfiguration();
@@ -425,7 +425,7 @@ public sealed class LaunchIntegrationTests
         Assert.AreEqual(1, masked.GetProperty("redacted").GetInt32());
 
         var shown = JsonDocument.Parse(plain.EvaluateExpression(expression, frame)).RootElement;
-        Assert.AreEqual("\"Bearer abcdefghijklmnop\"", shown.GetProperty("result").GetString());
+        Assert.AreEqual("\"Bearer abc123def456ghij\"", shown.GetProperty("result").GetString());
         Assert.AreEqual(0, shown.GetProperty("redacted").GetInt32());
     }
 
