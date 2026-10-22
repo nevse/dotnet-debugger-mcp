@@ -69,6 +69,15 @@ public class ServerConfiguration
     public bool JustMyCode { get; set; } = true;
 
     /// <summary>
+    /// Mask what looks like a secret in variable values, evaluation results, exception text and
+    /// program output before it reaches the model (default: true). See SecretRedactor for what it
+    /// catches and what it cannot. Meant to be turned off by the person running the server, not by
+    /// the agent, which has no tool to change it.
+    /// Environment variable: DOTNET_DEBUGGER_MCP_REDACT_SECRETS
+    /// </summary>
+    public bool RedactSecrets { get; set; } = true;
+
+    /// <summary>
     /// The host half of the remote CoreCLR debugger libraries, a directory holding one directory per
     /// RID. Unset, the copy that ships with the server is used, which is what debugging a mobile app
     /// normally needs; this is for a copy built locally instead.
@@ -176,6 +185,13 @@ public class ServerConfiguration
         if (bool.TryParse(justMyCode, out var parsedJustMyCode))
         {
             config.JustMyCode = parsedJustMyCode;
+        }
+
+        // Secret redaction
+        var redactSecrets = Environment.GetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS");
+        if (bool.TryParse(redactSecrets, out var parsedRedactSecrets))
+        {
+            config.RedactSecrets = parsedRedactSecrets;
         }
 
         // Overrides of the bundled remote CoreCLR debugger libraries, for mobile debugging. Kept as

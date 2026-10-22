@@ -23,6 +23,7 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_JUST_MY_CODE", null);
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -41,6 +42,7 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_JUST_MY_CODE", null);
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -62,6 +64,7 @@ public class ServerConfigurationTests
         Assert.AreEqual(2000, config.BreakpointBindTimeoutMs);
         Assert.IsFalse(config.EnableDiagnostics);
         Assert.IsTrue(config.JustMyCode);
+        Assert.IsTrue(config.RedactSecrets);
         Assert.IsNull(config.RemoteCoreclrHostDirectory);
         Assert.IsNull(config.RemoteCoreclrTargetDirectory);
         Assert.AreEqual(600, config.MobileStartTimeoutSeconds);
@@ -140,6 +143,19 @@ public class ServerConfigurationTests
 
         // Assert
         Assert.IsFalse(config.JustMyCode);
+    }
+
+    [TestMethod]
+    public void LoadFromEnvironment_RedactSecrets_False()
+    {
+        // Arrange
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS", "false");
+
+        // Act
+        var config = ServerConfiguration.LoadFromEnvironment();
+
+        // Assert
+        Assert.IsFalse(config.RedactSecrets);
     }
 
     [TestMethod]

@@ -371,6 +371,30 @@ condition is code run at every hit. All of these are annotated as destructive an
 with `start_program` and `launch_mobile_app` (see [Tools](#tools)), so a client that honours the
 annotations can be set to ask for those and approve the reads.
 
+### Secrets in what the debugger shows
+
+Values read from the debuggee go to the model, so `get_variables`, `expand_variable`,
+`evaluate_expression`, `get_exception_info` and `get_program_output` mask what looks like a secret
+first, as `[redacted: N chars]`. Two rules decide it:
+
+- **By name.** A string whose variable or member name contains `password`, `passwd`, `pwd`, `secret`, `token`,
+  `apiKey`, `connectionString`, `credential`, `privateKey`, `accessKey` or `authorization` is masked
+  whole. Only strings: an `int tokenCount` or a `CancellationToken token` shows as it is. An object is
+  not masked, and its members are checked when they are expanded. For `evaluate_expression` the name is
+  the last member the expression reads, so `config.Db.Password` counts.
+- **By format.** In any text, named or not: `Bearer` and `Basic` credentials, JWTs, `Password=`,
+  `Pwd=`, `ApiKey=`, `sig=` and the like inside connection strings and URLs, keys with a well-known
+  prefix (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xoxb-`, `AIza`), and PEM private keys. Only the secret
+  itself is masked, so the rest of a connection string stays readable.
+
+`null` and an empty string are shown as they are, since whether a secret is set at all is often the
+question. Each response says how many values it masked in `redacted`.
+
+This reduces exposure; it does not prevent it. A secret in a variable called `s`, in a format the
+patterns do not know, or read piecemeal - `evaluate_expression` of `password.Length` or `password[0]` -
+passes. Set `DOTNET_DEBUGGER_MCP_REDACT_SECRETS=false` to see values unmasked; the agent has no way to
+turn it off itself.
+
 ### Attaching to other users' processes
 
 A debugger can read and change everything in the process it attaches to, so by default this server
@@ -509,6 +533,7 @@ Set these as environment variables in your client's configuration:
 | `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
 | `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
 | `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
+| `DOTNET_DEBUGGER_MCP_REDACT_SECRETS` | Mask what looks like a secret in values before the model sees them. See above | `true` |
 | `DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
 | `DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |
 | `DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST` | A `remote-host` directory to use instead of the bundled one, for debugging a MAUI app. See above | bundled |

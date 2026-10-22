@@ -246,7 +246,9 @@ public sealed class DebuggingTools
         "Read what the debuggee has written to stdout and stderr, oldest line first. Only a " +
         "launched program's output is captured - a process attached to with attach_to_process keeps " +
         "its own console, and nothing appears here. Returns at most max_lines (default 100) of the " +
-        "most recent output; the last 1000 lines are kept.")]
+        "most recent output; the last 1000 lines are kept. " +
+        "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
+        "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string GetProgramOutput(int max_lines = 100, int? session_id = null)
     {
         try
@@ -255,13 +257,17 @@ public sealed class DebuggingTools
 
             var session = _sessionManager.Resolve(session_id);
             var lines = session.ReadOutput(max_lines);
+            var redactor = new SecretRedactor(_configuration.RedactSecrets);
+
+            var output = lines.Select(l => new { text = redactor.Text(l.Text), stream = l.IsError ? "stderr" : "stdout" }).ToList();
 
             var response = new
             {
                 success = true,
                 session_id = session.SessionId,
                 count = lines.Count,
-                output = lines.Select(l => new { text = l.Text, stream = l.IsError ? "stderr" : "stdout" }).ToList()
+                output,
+                redacted = redactor.Count
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
@@ -402,7 +408,9 @@ public sealed class DebuggingTools
         "a second level of inner exception, HResult, Source, Data, a property of your own exception " +
         "type - the exception object itself is in scope as $exception, so evaluate_expression with " +
         "'$exception.HResult' or '$exception.InnerException.InnerException' reads it, and " +
-        "get_variables on the frame lists it among the locals to expand.")]
+        "get_variables on the frame lists it among the locals to expand. " +
+        "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
+        "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string GetExceptionInfo(int? thread_id = null, int? session_id = null)
     {
         try
@@ -459,6 +467,7 @@ public sealed class DebuggingTools
             }
 
             var thrown = session.GetExceptionInfo(threadId).GetAwaiter().GetResult();
+            var redactor = new SecretRedactor(_configuration.RedactSecrets);
 
             var response = new
             {
@@ -466,11 +475,11 @@ public sealed class DebuggingTools
                 session_id = session.SessionId,
                 thread_id = threadId,
                 type = thrown.TypeName,
-                message = thrown.Message,
+                message = Redact(redactor, thrown.Message),
                 // The exception's own stack trace as text, which is where it was thrown rather than
                 // where the program is now. get_stack_trace on this thread gives the same place in
                 // a form that can be walked into with get_variables.
-                stack_trace = thrown.StackTrace,
+                stack_trace = Redact(redactor, thrown.StackTrace),
                 // The direct inner exception, null without one. Its trace is the one it recorded when
                 // it was thrown, so an inner that was only constructed to be wrapped has none.
                 inner_exception = thrown.InnerException is null
@@ -478,9 +487,10 @@ public sealed class DebuggingTools
                     : new
                     {
                         type = thrown.InnerException.TypeName,
-                        message = thrown.InnerException.Message,
-                        stack_trace = thrown.InnerException.StackTrace
-                    }
+                        message = Redact(redactor, thrown.InnerException.Message),
+                        stack_trace = Redact(redactor, thrown.InnerException.StackTrace)
+                    },
+                redacted = redactor.Count
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
@@ -1007,7 +1017,10 @@ public sealed class DebuggingTools
         }
     }
 
-    [McpServerTool(Destructive = false, OpenWorld = false), Description("Get local variables for a specific stack frame ID")]
+    [McpServerTool(Destructive = false, OpenWorld = false), Description(
+        "Get local variables for a specific stack frame ID. " +
+        "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
+        "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string GetVariables(int frame_id, int? session_id = null)
     {
         try
@@ -1029,6 +1042,15 @@ public sealed class DebuggingTools
 
             // Call async method synchronously for MCP tool
             var variables = session.GetVariables(frame_id).GetAwaiter().GetResult();
+            var redactor = new SecretRedactor(_configuration.RedactSecrets);
+
+            var shown = variables.Select(v => new
+            {
+                name = v.Name,
+                value = redactor.Value(v.Name, v.Type, v.Value, v.VariablesReference),
+                type = v.Type,
+                variables_reference = v.VariablesReference
+            }).ToList();
 
             var response = new
             {
@@ -1036,13 +1058,8 @@ public sealed class DebuggingTools
                 session_id = session.SessionId,
                 frame_id,
                 variable_count = variables.Count,
-                variables = variables.Select(v => new
-                {
-                    name = v.Name,
-                    value = v.Value,
-                    type = v.Type,
-                    variables_reference = v.VariablesReference
-                }).ToList()
+                variables = shown,
+                redacted = redactor.Count
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
@@ -1056,7 +1073,9 @@ public sealed class DebuggingTools
     [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Expand a variables_reference into its members, which may themselves carry references to " +
         "expand further. References come from get_variables, from evaluate_expression and from this " +
-        "tool. Expand while still stopped - a reference only applies to the stop it was taken in.")]
+        "tool. Expand while still stopped - a reference only applies to the stop it was taken in. " +
+        "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
+        "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string ExpandVariable(int variables_reference, int? session_id = null)
     {
         try
@@ -1077,6 +1096,15 @@ public sealed class DebuggingTools
 
             // Call async method synchronously for MCP tool
             var members = session.ExpandVariable(variables_reference).GetAwaiter().GetResult();
+            var redactor = new SecretRedactor(_configuration.RedactSecrets);
+
+            var shown = members.Select(v => new
+            {
+                name = v.Name,
+                value = redactor.Value(v.Name, v.Type, v.Value, v.VariablesReference),
+                type = v.Type,
+                variables_reference = v.VariablesReference
+            }).ToList();
 
             var response = new
             {
@@ -1084,13 +1112,8 @@ public sealed class DebuggingTools
                 session_id = session.SessionId,
                 variables_reference,
                 member_count = members.Count,
-                members = members.Select(v => new
-                {
-                    name = v.Name,
-                    value = v.Value,
-                    type = v.Type,
-                    variables_reference = v.VariablesReference
-                }).ToList()
+                members = shown,
+                redacted = redactor.Count
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
@@ -1316,7 +1339,9 @@ public sealed class DebuggingTools
         "Evaluate a C# expression in the context of a stack frame. An expression that runs code in " +
         "the target - a property getter, ToString(), any method call - is allowed and does not cost " +
         "the session. When the result is an object, variables_reference is non-zero and can be " +
-        "walked with expand_variable.")]
+        "walked with expand_variable. " +
+        "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
+        "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string EvaluateExpression(string expression, int frame_id, int? session_id = null)
     {
         try
@@ -1339,22 +1364,28 @@ public sealed class DebuggingTools
 
             // Call async method synchronously for MCP tool
             var result = session.EvaluateExpression(expression, frame_id).GetAwaiter().GetResult();
+            var redactor = new SecretRedactor(_configuration.RedactSecrets);
 
             var response = new
             {
                 success = true,
                 session_id = session.SessionId,
                 expression,
-                result = result.Result,
+                result = redactor.Value(SecretRedactor.LastIdentifier(expression), result.Type, result.Result, result.VariablesReference),
                 type = result.Type,
-                variables_reference = result.VariablesReference
+                variables_reference = result.VariablesReference,
+                redacted = redactor.Count
             };
 
             return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (Exception ex)
         {
-            return DebuggerErrors.ErrorResponse(ex);
+            // The debugger's message can quote the value it failed on
+            return new SecretRedactor(_configuration.RedactSecrets).Text(DebuggerErrors.ErrorResponse(ex));
         }
     }
+
+    private static string? Redact(SecretRedactor redactor, string? text) =>
+        text is null ? null : redactor.Text(text);
 }

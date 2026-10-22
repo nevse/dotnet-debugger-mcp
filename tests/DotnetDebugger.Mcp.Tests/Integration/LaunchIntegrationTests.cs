@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 
 using DotnetDebugger.Mcp.Configuration;
 using DotnetDebugger.Mcp.Debugging;
@@ -390,6 +391,42 @@ public sealed class LaunchIntegrationTests
         {
             Directory.Delete(project, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// A secret the debuggee produces reaches the tool's caller masked, and as it is once the person
+    /// running the server turns redaction off. Two tool objects over one session, as the server would
+    /// be configured either way.
+    /// </summary>
+    [TestMethod]
+    public void EvaluateExpression_ABearerToken_IsMaskedUnlessRedactionIsOff()
+    {
+        const string expression = "\"Bearer \" + \"abcdefghijklmnop\"";
+        var line = TestPaths.FindMarkerLine("BREAKPOINT-TARGET");
+
+        var configuration = new ServerConfiguration();
+        using var manager = new DebugSessionManager(configuration);
+        var redacting = new DotnetDebugger.Mcp.Tools.DebuggingTools(configuration, manager, new ProcessDiscovery());
+        var plain = new DotnetDebugger.Mcp.Tools.DebuggingTools(
+            new ServerConfiguration { RedactSecrets = false }, manager, new ProcessDiscovery());
+
+        redacting.LaunchProgram(TestPaths.TestAppAssembly);
+
+        var session = manager.Resolve(null);
+        session.SetBreakpoint(TestPaths.TestAppSource, line);
+        session.Start();
+
+        var stopped = WaitForStop(session);
+        var frame = session.GetStackTrace(stopped.StoppedThreadId!.Value)[0].Id;
+
+        // The expression is echoed back as the agent wrote it; only the result is the debuggee's
+        var masked = JsonDocument.Parse(redacting.EvaluateExpression(expression, frame)).RootElement;
+        Assert.AreEqual("\"Bearer [redacted: 16 chars]\"", masked.GetProperty("result").GetString());
+        Assert.AreEqual(1, masked.GetProperty("redacted").GetInt32());
+
+        var shown = JsonDocument.Parse(plain.EvaluateExpression(expression, frame)).RootElement;
+        Assert.AreEqual("\"Bearer abcdefghijklmnop\"", shown.GetProperty("result").GetString());
+        Assert.AreEqual(0, shown.GetProperty("redacted").GetInt32());
     }
 
     /// <summary>
