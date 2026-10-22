@@ -188,7 +188,9 @@ public void Attach(int processId)
        // Implementation
    }
    ```
-3. **Validate inputs** using InputValidation class
+3. **Validate inputs** using InputValidation class, and pass any value read from the debuggee -
+   variables, evaluation results, exception text, program output - through a `SecretRedactor` built
+   from `RedactSecrets`, reporting its `Count` as `redacted`
 4. **Return JSON** using System.Text.Json.JsonSerializer
 5. **Add tests** in DotnetDebugger.Mcp.Tests
 6. **Declare annotations** that match what the tool does: `ReadOnly` for a read that runs no debuggee

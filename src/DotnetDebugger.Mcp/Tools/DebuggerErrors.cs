@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DotnetDebugger.Mcp.Debugging;
+
 namespace DotnetDebugger.Mcp.Tools;
 
 /// <summary>
@@ -144,6 +146,27 @@ public static partial class DebuggerErrors
             success = false,
             error = exception.Message,
             explanation = Explain(exception)
+        };
+
+        return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>
+    /// The same response for a failure whose message can quote a debuggee value, as an evaluation's
+    /// can. The message is masked before it is serialized: the JSON escaping of + and quotes would
+    /// otherwise split a credential where the patterns could no longer see it.
+    /// </summary>
+    public static string ErrorResponse(Exception exception, SecretRedactor redactor)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        ArgumentNullException.ThrowIfNull(redactor);
+
+        var response = new
+        {
+            success = false,
+            error = redactor.Text(exception.Message),
+            explanation = Explain(exception),
+            redacted = redactor.Count
         };
 
         return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
