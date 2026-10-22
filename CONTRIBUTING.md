@@ -182,7 +182,7 @@ public void Attach(int processId)
 1. **Add the method** to the appropriate tools class (McpTools.cs or DebuggingTools.cs)
 2. **Decorate with attributes**:
    ```csharp
-   [McpServerTool, Description("Your tool description")]
+   [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Your tool description")]
    public static string YourToolName(string param1, int param2)
    {
        // Implementation
@@ -191,7 +191,11 @@ public void Attach(int processId)
 3. **Validate inputs** using InputValidation class
 4. **Return JSON** using System.Text.Json.JsonSerializer
 5. **Add tests** in DotnetDebugger.Mcp.Tests
-6. **Document in README** under "Available Tools" section
+6. **Declare annotations** that match what the tool does: `ReadOnly` for a read that runs no debuggee
+   code, `Destructive = false` for one that changes only the session, and `Destructive = true,
+   OpenWorld = true` for one that runs code the agent chose - an expression argument counts
+7. **Document in README** in the "Tools" section, with its Annotation column. A tool that runs code
+   also goes in the list of calls to confirm under "What `launch_program` will run"
 
 ### Adding New Configuration Options
 

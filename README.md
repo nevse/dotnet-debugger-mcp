@@ -192,63 +192,77 @@ Claude: [get_program_output()]
 
 ## Tools
 
+Each tool declares MCP annotations, so a client that reads them can approve the read-only ones without
+asking and still ask for the rest. The last column says which:
+
+- **read-only** - reads the session or the machine and changes nothing.
+- **session** - changes only the debug session: stepping, resuming, removing a breakpoint. Not
+  destructive.
+- **runs getters** - reads that run the debuggee's own code: the debugger calls `ToString`, property
+  getters and `DebuggerDisplay` to show a value. Not marked read-only, though not destructive either.
+- **ends a launched program** - destructive: a program the session launched is killed.
+- **runs code** - destructive and open-world: it starts, builds or evaluates code the agent chose. A
+  breakpoint's condition is a C# expression evaluated at every hit, so setting one counts.
+
+The annotations are hints, and a client is free to ignore them.
+
 ### Debugging
 
-| Tool | What it does |
-|---|---|
-| `list_dotnet_processes` | List the .NET processes running on this machine |
-| `attach_to_process` | Attach the debugger to a running .NET process |
-| `launch_program` | Prepare a program to run under the debugger, stopped before it starts |
-| `start_program` | Run the program prepared by `launch_program` |
-| `get_process_status` | Report whether the session is running, stopped, and where |
-| `wait_for_stop` | Block until the debuggee stops, instead of polling |
-| `get_program_output` | Read what the debuggee wrote to stdout and stderr |
-| `detach_from_process` | Detach, leaving the process running |
-| `list_sessions` | List open sessions and what each is debugging |
-| `close_session` | Close a session, detaching first if needed |
+| Tool | What it does | Annotation |
+|---|---|---|
+| `list_dotnet_processes` | List the .NET processes running on this machine | read-only |
+| `attach_to_process` | Attach the debugger to a running .NET process | runs code |
+| `launch_program` | Prepare a program to run under the debugger, stopped before it starts | runs code |
+| `start_program` | Run the program prepared by `launch_program` | runs code |
+| `get_process_status` | Report whether the session is running, stopped, and where | read-only |
+| `wait_for_stop` | Block until the debuggee stops, instead of polling | read-only |
+| `get_program_output` | Read what the debuggee wrote to stdout and stderr | read-only |
+| `detach_from_process` | Detach, leaving the process running | ends a launched program |
+| `list_sessions` | List open sessions and what each is debugging | read-only |
+| `close_session` | Close a session, detaching first if needed | ends a launched program |
 
 ### .NET MAUI
 
 Needs a one-off setup - see [Debugging a .NET MAUI app](#debugging-a-net-maui-app).
 
-| Tool | What it does |
-|---|---|
-| `list_mobile_devices` | List Android emulators and phones, iOS simulators and devices, and this Mac |
-| `build_mobile_app` | Build a MAUI project for one of them, against CoreCLR and with the debugging library inside |
-| `launch_mobile_app` | Prepare the built app for debugging, stopped before it starts; `start_program` runs it |
+| Tool | What it does | Annotation |
+|---|---|---|
+| `list_mobile_devices` | List Android emulators and phones, iOS simulators and devices, and this Mac | read-only |
+| `build_mobile_app` | Build a MAUI project for one of them, against CoreCLR and with the debugging library inside | runs code |
+| `launch_mobile_app` | Prepare the built app for debugging, stopped before it starts; `start_program` runs it | runs code |
 
 ### Breakpoints
 
-| Tool | What it does |
-|---|---|
-| `set_breakpoint` | Set or update a breakpoint at a file and line, with an optional condition or hit count |
-| `set_function_breakpoint` | Set a breakpoint on a method by name, when the file and line are not known |
-| `remove_breakpoint` | Remove a breakpoint of either kind |
-| `list_breakpoints` | List this session's breakpoints and whether each is verified |
-| `set_exception_break_mode` | Choose which exceptions stop the program: all, unhandled, or named types |
+| Tool | What it does | Annotation |
+|---|---|---|
+| `set_breakpoint` | Set or update a breakpoint at a file and line, with an optional condition or hit count | runs code |
+| `set_function_breakpoint` | Set a breakpoint on a method by name, when the file and line are not known | runs code |
+| `remove_breakpoint` | Remove a breakpoint of either kind | session |
+| `list_breakpoints` | List this session's breakpoints and whether each is verified | read-only |
+| `set_exception_break_mode` | Choose which exceptions stop the program: all, unhandled, or named types | session |
 
 ### Execution and inspection
 
-| Tool | What it does |
-|---|---|
-| `continue_execution` | Resume until the next breakpoint or exit |
-| `pause_execution` | Break into the debugger where the program currently is |
-| `step_over`, `step_into`, `step_out` | Step by line, into a call, or out of the current method |
-| `get_threads` | List the threads in the debuggee |
-| `get_stack_trace` | Read the call stack for a thread |
-| `get_variables` | Read the locals of a stack frame |
-| `expand_variable` | Expand an object into its members, which may expand further |
-| `evaluate_expression` | Evaluate a C# expression in the context of a frame |
-| `get_exception_info` | Read the type, message, stack trace and inner exception of what was thrown |
+| Tool | What it does | Annotation |
+|---|---|---|
+| `continue_execution` | Resume until the next breakpoint or exit | session |
+| `pause_execution` | Break into the debugger where the program currently is | session |
+| `step_over`, `step_into`, `step_out` | Step by line, into a call, or out of the current method | session |
+| `get_threads` | List the threads in the debuggee | read-only |
+| `get_stack_trace` | Read the call stack for a thread | read-only |
+| `get_variables` | Read the locals of a stack frame | runs getters |
+| `expand_variable` | Expand an object into its members, which may expand further | runs getters |
+| `evaluate_expression` | Evaluate a C# expression in the context of a frame | runs code |
+| `get_exception_info` | Read the type, message, stack trace and inner exception of what was thrown | runs getters |
 
 ### Documentation
 
-| Tool | What it does |
-|---|---|
-| `search_debugging_concepts` | Search the embedded documentation |
-| `explain_icordebug_interface` | Explain a specific ICorDebug interface |
-| `get_debugging_flow` | Walk through a debugging operation step by step |
-| `list_debugging_concepts` | Browse the concept catalogue by category |
+| Tool | What it does | Annotation |
+|---|---|---|
+| `search_debugging_concepts` | Search the embedded documentation | read-only |
+| `explain_icordebug_interface` | Explain a specific ICorDebug interface | read-only |
+| `get_debugging_flow` | Walk through a debugging operation step by step | read-only |
+| `list_debugging_concepts` | Browse the concept catalogue by category | read-only |
 
 ## Things worth knowing
 
@@ -352,7 +366,10 @@ anything its user can, an agent able to write and build code can launch what it 
 `Process.Start` in whatever is being debugged. What the check stops is the agent naming a native
 program directly. Treat a client that allows this server's tools as one that allows a shell, and
 confirm `launch_program`, `evaluate_expression`, `build_mobile_app` and `attach_to_process` calls rather
-than approving them automatically.
+than approving them automatically, along with `set_breakpoint` and `set_function_breakpoint`, whose
+condition is code run at every hit. All of these are annotated as destructive and open-world, together
+with `start_program` and `launch_mobile_app` (see [Tools](#tools)), so a client that honours the
+annotations can be set to ask for those and approve the reads.
 
 ### Attaching to other users' processes
 
@@ -489,7 +506,7 @@ Set these as environment variables in your client's configuration:
 | `DOTNET_DEBUGGER_MCP_LOG_LEVEL` | `Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical` | `Information` |
 | `DOTNET_DEBUGGER_MCP_MAX_SESSIONS` | Sessions open at once, each debugging its own process | `1` |
 | `DOTNET_DEBUGGER_MCP_OPERATION_TIMEOUT_SECONDS` | Bounds attaching, starting, pausing and closing a session. Steps and reads are not bounded | `30` |
-| `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds anything that runs code in the debuggee: `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
+| `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
 | `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
 | `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
 | `DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |

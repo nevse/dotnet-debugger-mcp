@@ -28,7 +28,7 @@ public sealed class McpTools
         _flowProvider = flowProvider;
     }
 
-    [McpServerTool, Description("Search the .NET debugger documentation for concepts related to the query")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Search the .NET debugger documentation for concepts related to the query")]
     public string SearchDebuggingConcepts(string query)
     {
         var results = _loader.Search(query);
@@ -55,7 +55,7 @@ public sealed class McpTools
     }
 
     // Name pinned: the SDK would turn ExplainICorDebugInterface into explain_i_cor_debug_interface
-    [McpServerTool(Name = "explain_icordebug_interface")]
+    [McpServerTool(Name = "explain_icordebug_interface", ReadOnly = true, OpenWorld = false)]
     public string ExplainICorDebugInterface(string interface_name)
     {
         var results = _loader.Search(interface_name);
@@ -77,7 +77,7 @@ public sealed class McpTools
         return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    [McpServerTool, Description("Get the step-by-step flow for a debugging operation such as 'setting a breakpoint' or 'evaluating an expression'")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("Get the step-by-step flow for a debugging operation such as 'setting a breakpoint' or 'evaluating an expression'")]
     public string GetDebuggingFlow(string operation)
     {
         var flow = _flowProvider.GetFlow(operation);
@@ -90,7 +90,7 @@ public sealed class McpTools
         return flow;
     }
 
-    [McpServerTool, Description("List all available debugging concepts organized by category")]
+    [McpServerTool(ReadOnly = true, OpenWorld = false), Description("List all available debugging concepts organized by category")]
     public string ListDebuggingConcepts()
     {
         var concepts = _conceptIndex.GetAllConcepts();
