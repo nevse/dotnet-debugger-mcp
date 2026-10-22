@@ -111,14 +111,14 @@ public class DebuggerErrorsTests
     public void ErrorResponse_WithARedactor_MasksTheMessageBeforeItIsSerialized()
     {
         var json = DebuggerErrors.ErrorResponse(
-            new FormatException("The input string 'Basic dXNl+cjpwYXNzd29yZA==' was not in a correct format."),
+            new FormatException("The input string 'Basic Ym9iOnA+c3N+MQ==' was not in a correct format."),
             new SecretRedactor(enabled: true));
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
         Assert.AreEqual(
-            "The input string 'Basic [redacted: 21 chars]' was not in a correct format.",
+            "The input string 'Basic [redacted: 16 chars]' was not in a correct format.",
             root.GetProperty("error").GetString());
         Assert.AreEqual(1, root.GetProperty("redacted").GetInt32());
     }

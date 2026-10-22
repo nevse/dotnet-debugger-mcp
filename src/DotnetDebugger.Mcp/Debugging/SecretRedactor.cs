@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DotnetDebugger.Mcp.Debugging;
@@ -30,24 +31,29 @@ public sealed class SecretRedactor
     private const RegexOptions Options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 
     // Each pattern's group "secret" is what gets masked; anything around it stays, so the reader can
-    // see a bearer token or a password was there. A secret shorter than its pattern's minimum is
-    // left alone: the length a pattern can demand is limited without lookaround.
-    private static readonly (Regex Pattern, int MinLength)[] SecretPatterns =
+    // see a bearer token or a password was there. A pattern can also judge what it found, which is
+    // how a check that needs more than a regular expression without lookaround is made.
+    private static readonly (Regex Pattern, Func<string, bool> IsSecret)[] SecretPatterns =
     [
-        // Authorization header values. The credential has to hold a digit or a token character, so
-        // "Basic authentication failed" is the English it looks like.
-        (new(@"\b(?:Bearer|Basic)\s+(?<secret>[A-Za-z0-9\-._~+/]*[0-9\-._~+/][A-Za-z0-9\-._~+/]*=*)", Options), 8),
+        // Bearer tokens. The token has to hold a digit, + or /, so "Bearer authentication." is the
+        // English it looks like; a token of letters, dots and dashes alone is not caught.
+        (new(@"\bBearer\s+(?<secret>[A-Za-z0-9\-._~+/]*[0-9+/][A-Za-z0-9\-._~+/]*=*)", Options), s => s.Length >= 8),
+        // Basic credentials: base64 of user:password, decoded to be sure, so neither a credential of
+        // letters only nor an English word is mistaken for the other
+        (new(@"\bBasic\s+(?<secret>[A-Za-z0-9+/]+=*)", Options), IsBasicCredential),
         // JWTs: a base64url JSON header, a payload and an optional signature
-        (new(@"(?<secret>\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*)", Options), 1),
+        (new(@"(?<secret>\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*)", Options), Any),
         // key=value in connection strings and query strings: a quoted value up to its closing quote,
         // an unquoted one up to the separator
         (new(@"\b(?:password|pwd|secret|client_?secret|token|access_?token|api_?key|access_?key|account_?key|sig)\s*=\s*(?:""(?<secret>[^""]+)""|'(?<secret>[^']+)'|(?<secret>[^;&\s""']+))",
-            Options | RegexOptions.IgnoreCase), 1),
+            Options | RegexOptions.IgnoreCase), Any),
         // Provider keys recognisable by their prefix
         (new(@"(?<secret>\b(?:sk-[A-Za-z0-9_\-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{35}))",
-            Options), 1),
+            Options), Any),
         // PEM private keys. The body is base64, which holds no dash.
-        (new(@"(?<secret>-----BEGIN [A-Z ]*PRIVATE KEY-----[^\-]*-----END [A-Z ]*PRIVATE KEY-----)", Options), 1),
+        (new(@"(?<secret>-----BEGIN [A-Z ]*PRIVATE KEY-----[^\-]*-----END [A-Z ]*PRIVATE KEY-----)", Options), Any),
+        // A key whose END has not been written yet, from its BEGIN to the end of the text
+        (new(@"(?<secret>-----BEGIN [A-Z ]*PRIVATE KEY-----[^\-]*)\z", Options), Any),
     ];
 
     private readonly bool _enabled;
@@ -125,13 +131,13 @@ public sealed class SecretRedactor
 
         var spans = new List<(int Start, int End)>();
 
-        foreach (var (pattern, minLength) in SecretPatterns)
+        foreach (var (pattern, isSecret) in SecretPatterns)
         {
             foreach (Match match in pattern.Matches(text))
             {
                 var secret = match.Groups["secret"];
 
-                if (secret.Success && secret.Length >= minLength)
+                if (secret.Success && secret.Length > 0 && isSecret(secret.Value))
                     spans.Add((secret.Index, secret.Index + secret.Length));
             }
         }
@@ -141,7 +147,7 @@ public sealed class SecretRedactor
 
         spans.Sort();
 
-        var result = new System.Text.StringBuilder(text.Length);
+        var result = new StringBuilder(text.Length);
         var position = 0;
         var index = 0;
 
@@ -184,6 +190,16 @@ public sealed class SecretRedactor
         // An identifier the whole expression, or the member after a dot; anything else before it is
         // an operator or a call, and the name is not the result's
         return start == 0 || trimmed[start - 1] == '.' ? trimmed[start..] : null;
+    }
+
+    private static bool Any(string secret) => true;
+
+    private static bool IsBasicCredential(string secret)
+    {
+        var bytes = new byte[secret.Length];
+
+        return Convert.TryFromBase64String(secret, bytes, out var written)
+            && Encoding.UTF8.GetString(bytes, 0, written).Contains(':');
     }
 
     private static bool IsString(string? type) =>

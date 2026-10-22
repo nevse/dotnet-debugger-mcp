@@ -91,6 +91,7 @@ public class SecretRedactorTests
     [TestMethod]
     [DataRow("Authorization: Bearer abc123def456ghij", "Authorization: Bearer [redacted: 16 chars]")]
     [DataRow("Basic dXNlcjpwYXNzd29yZA==", "Basic [redacted: 20 chars]")]
+    [DataRow("Basic dXNlcjpwYXNz", "Basic [redacted: 12 chars]")]
     [DataRow("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl ok",
         "jwt [redacted: 49 chars] ok")]
     [DataRow("Server=db;User Id=sa;Password=hunter2;Encrypt=true",
@@ -160,6 +161,16 @@ public class SecretRedactorTests
     }
 
     [TestMethod]
+    public void Lines_AKeyWhoseEndIsNotWrittenYet_IsMaskedFromItsBegin()
+    {
+        var shown = On().Lines(["loading key", "-----BEGIN PRIVATE KEY-----", "MIIBOgIBAAJBAKj34GkxFhD90vcN"]);
+
+        Assert.AreEqual("loading key", shown[0]);
+        StringAssert.StartsWith(shown[1], "[redacted: ");
+        Assert.AreEqual("", shown[2]);
+    }
+
+    [TestMethod]
     public void Lines_ALineHoldingNewlinesOfItsOwn_StaysOneLine()
     {
         var shown = On().Lines(["first\nPassword=hunter2", "tick 5"]);
@@ -175,6 +186,10 @@ public class SecretRedactorTests
     [DataRow("Basic authentication failed for user bob")]
     [DataRow("Basic settings loaded")]
     [DataRow("Bearer authentication is not configured")]
+    [DataRow("The server requires Basic authentication.")]
+    [DataRow("Basic authentication-only")]
+    [DataRow("Basic auth/digest")]
+    [DataRow("Bearer authentication.")]
     public void Text_OrdinaryOutput_IsLeftAlone(string text)
     {
         Assert.AreEqual(text, On().Text(text));

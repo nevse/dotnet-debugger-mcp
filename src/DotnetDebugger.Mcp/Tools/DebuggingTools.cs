@@ -256,11 +256,12 @@ public sealed class DebuggingTools
             InputValidation.ValidateOutputLineCount(max_lines);
 
             var session = _sessionManager.Resolve(session_id);
-            var lines = session.ReadOutput(max_lines);
+            // The whole buffer is masked, not only the lines asked for: a key whose first line is
+            // older than the window is still recognised by it. Masked a run of one stream at a time,
+            // so a secret printed over several lines is seen whole and the two streams never join.
+            var lines = session.ReadOutput(int.MaxValue);
             var redactor = new SecretRedactor(_configuration.RedactSecrets);
 
-            // Masked a run of one stream at a time, so a secret printed over several lines is seen
-            // whole and the two streams never join into one
             var output = new List<object>(lines.Count);
 
             for (var start = 0; start < lines.Count;)
@@ -276,11 +277,13 @@ public sealed class DebuggingTools
                 start = end;
             }
 
+            output = output.Skip(Math.Max(0, output.Count - max_lines)).ToList();
+
             var response = new
             {
                 success = true,
                 session_id = session.SessionId,
-                count = lines.Count,
+                count = output.Count,
                 output,
                 redacted = redactor.Count
             };
