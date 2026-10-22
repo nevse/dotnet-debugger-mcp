@@ -15,8 +15,7 @@ costs the debug session rather than the server.
 > [SharpDbg](https://github.com/MattParkerDev/sharpdbg) to clrdbg, launching a program under the
 > debugger is new, and the two have not shared a commit since. This repository was called
 > `SharpDbg.MCP` until the first release, and GitHub redirects the old name. The `SHARPDBG_*` settings
-> were renamed to `DOTNET_DEBUGGER_MCP_*` in the release that followed 0.6.3; the old names are no
-> longer read.
+> were renamed to `DOTNET_DEBUGGER_MCP_*` in 0.7.0; the old names are no longer read.
 
 ## What it can do
 
@@ -62,7 +61,7 @@ works everywhere. There is nothing to clone or build.
 **Claude Code**, for the current project:
 
 ```bash
-claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version 0.6.3 --yes
+claude mcp add dotnet-debugger -- dotnet tool exec DotnetDebugger.Mcp --version 0.7.0 --yes
 ```
 
 Add `--scope user` to make it available in every project, or `--scope project` to write a `.mcp.json`
@@ -77,7 +76,7 @@ workspace. VS Code calls the section `servers`, not `mcpServers`:
     "dotnet-debugger": {
       "type": "stdio",
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"]
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.7.0", "--yes"]
     }
   }
 }
@@ -91,13 +90,13 @@ workspace. VS Code calls the section `servers`, not `mcpServers`:
   "mcpServers": {
     "dotnet-debugger": {
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"]
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.7.0", "--yes"]
     }
   }
 }
 ```
 
-`dnx DotnetDebugger.Mcp --version 0.6.3 --yes` is the shorter equivalent, and the form NuGet.org
+`dnx DotnetDebugger.Mcp --version 0.7.0 --yes` is the shorter equivalent, and the form NuGet.org
 suggests. Prefer `dotnet tool exec` in a client launched from a desktop environment rather than from a
 shell: `dnx` lives in the SDK directory, which such a client often does not have on its `PATH`, while
 `dotnet` reliably is.
@@ -117,7 +116,7 @@ latest is on [nuget.org](https://www.nuget.org/packages/DotnetDebugger.Mcp).
 Installing the tool once instead avoids the resolution step on every start:
 
 ```bash
-dotnet tool install -g DotnetDebugger.Mcp --version 0.6.3
+dotnet tool install -g DotnetDebugger.Mcp --version 0.7.0
 ```
 
 The command is then `dotnet-debugger-mcp`, with no arguments. This needs `~/.dotnet/tools` on your
@@ -492,7 +491,7 @@ Set these as environment variables in your client's configuration:
   "mcpServers": {
     "dotnet-debugger": {
       "command": "dotnet",
-      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.6.3", "--yes"],
+      "args": ["tool", "exec", "DotnetDebugger.Mcp", "--version", "0.7.0", "--yes"],
       "env": {
         "DOTNET_DEBUGGER_MCP_LOG_LEVEL": "Debug"
       }
@@ -549,7 +548,7 @@ To see what the server is doing, set `DOTNET_DEBUGGER_MCP_LOG_LEVEL=Trace` and
 `DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS=true`, or run it directly and watch stderr:
 
 ```bash
-dotnet tool exec DotnetDebugger.Mcp --version 0.6.3 --yes
+dotnet tool exec DotnetDebugger.Mcp --version 0.7.0 --yes
 ```
 
 ## Development
