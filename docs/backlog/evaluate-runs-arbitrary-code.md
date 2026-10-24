@@ -1,6 +1,6 @@
 ---
 worth: later
-where: src/DotnetDebugger.Mcp/Tools/DebuggingTools.cs:1286
+where: src/DotnetDebugger.Mcp/Tools/DebuggingTools.cs:1363
 added: 2026-10-15
 ---
 # evaluate_expression runs arbitrary code in the debuggee
