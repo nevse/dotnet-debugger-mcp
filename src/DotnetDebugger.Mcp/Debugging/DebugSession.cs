@@ -201,13 +201,23 @@ public class DebugSession : IDisposable
             debugger = _phase == SessionPhase.Idle ? null : _debugger;
         }
 
-        // Nothing to tell when there is no debuggee: the choice travels with the next attach or launch
-        debugger?.SetExceptionBreakpoints(FiltersFor(mode), TypeConditionFor(mode, types, typesAreExcluded));
+        try
+        {
+            // Nothing to tell when there is no debuggee: the choice travels with the next attach or launch
+            debugger?.SetExceptionBreakpoints(FiltersFor(mode), TypeConditionFor(mode, types, typesAreExcluded));
 
-        McpLogger.LogDebugSessionEvent(_sessionId, "ExceptionBreakMode", mode.ToString());
-
-        if (resumeNow)
-            ResumeIgnoredException(threadId);
+            McpLogger.LogDebugSessionEvent(_sessionId, "ExceptionBreakMode", mode.ToString());
+        }
+        finally
+        {
+            // Whether or not the filters landed: the stop is already counted as released above, so
+            // skipping the resume would leave the program suspended while the session reports it
+            // running, and a retry of the mode cannot release it, since it finds the session running.
+            // The mode itself is recorded either way, and a filter request that timed out is still
+            // applied once the adapter is free.
+            if (resumeNow)
+                ResumeIgnoredException(threadId);
+        }
     }
 
     /// <summary>
@@ -913,6 +923,10 @@ public class DebugSession : IDisposable
         {
             ReapplyFile(debugger, filePath);
         }
+        catch (TimeoutException ex)
+        {
+            throw StillApplying(ex, $"Breakpoint {id} is kept");
+        }
         catch (Exception ex)
         {
             McpLogger.LogDebugSessionError(_sessionId, "SetBreakpoint", ex);
@@ -992,6 +1006,10 @@ public class DebugSession : IDisposable
         {
             ReapplyFunctionBreakpoints(debugger);
         }
+        catch (TimeoutException ex)
+        {
+            throw StillApplying(ex, $"Breakpoint {id} is kept");
+        }
         catch (Exception ex)
         {
             McpLogger.LogDebugSessionError(_sessionId, "SetFunctionBreakpoint", ex);
@@ -1036,12 +1054,15 @@ public class DebugSession : IDisposable
         var debugger = RequireDebugger();
 
         TrackedBreakpoint? removed;
+        bool wasSourceBreakpoint;
 
         lock (_stateLock)
-        {
-            if (!_breakpoints.Remove(breakpointId, out removed))
-                return RemoveFunctionBreakpoint(debugger, breakpointId);
-        }
+            wasSourceBreakpoint = _breakpoints.Remove(breakpointId, out removed);
+
+        // Outside the lock: the adapter's answer is recorded under it on the protocol's callback
+        // thread, so a request sent while holding it waits on itself until it times out
+        if (!wasSourceBreakpoint)
+            return RemoveFunctionBreakpoint(debugger, breakpointId);
 
         McpLogger.LogDebugSessionEvent(_sessionId, "RemoveBreakpoint",
             $"ID {breakpointId} at {removed!.FilePath}:{removed.Line}");
@@ -1049,6 +1070,10 @@ public class DebugSession : IDisposable
         try
         {
             ReapplyFile(debugger, removed.FilePath);
+        }
+        catch (TimeoutException ex)
+        {
+            throw StillApplying(ex, $"Breakpoint {breakpointId} is removed");
         }
         catch (Exception ex)
         {
@@ -1081,6 +1106,10 @@ public class DebugSession : IDisposable
         try
         {
             ReapplyFunctionBreakpoints(debugger);
+        }
+        catch (TimeoutException ex)
+        {
+            throw StillApplying(ex, $"Breakpoint {breakpointId} is removed");
         }
         catch (Exception ex)
         {
@@ -1133,6 +1162,22 @@ public class DebugSession : IDisposable
     }
 
     /// <summary>
+    /// A breakpoint change the adapter has not answered in time is not rolled back: the adapter has
+    /// no cancel, so it applies the change once it is free, and a session that rolled back would then
+    /// track a set the adapter no longer holds. What the adapter made of it is recorded from its answer
+    /// whenever that comes.
+    /// </summary>
+    private TimeoutException StillApplying(TimeoutException timeout, string kept)
+    {
+        McpLogger.LogDebugSessionError(_sessionId, "Breakpoints", timeout);
+
+        return new TimeoutException(
+            $"{timeout.Message} {kept}: the debug adapter applies the change once it is free, and "
+            + "whether the breakpoint bound is known only then.",
+            timeout);
+    }
+
+    /// <summary>
     /// Re-sends every breakpoint tracked for a file.
     /// ManagedDebugger.SetBreakpoints replaces the file's entire set, so sending a single line
     /// would silently drop every other breakpoint in that file.
@@ -1153,14 +1198,15 @@ public class DebugSession : IDisposable
             .Select(b => new SourceBreakpointRequest(b.Line, b.Condition, b.HitCondition))
             .ToArray();
 
-        var applied = RetryWhileModulesLoad(() => debugger.SetBreakpoints(filePath, requests));
-
         // SetBreakpoints preserves request order, so results line up with forFile
-        lock (_stateLock)
+        RetryWhileModulesLoad(() => debugger.SetBreakpoints(filePath, requests, applied =>
         {
-            for (var i = 0; i < forFile.Count && i < applied.Count; i++)
-                ApplyDebuggerState(forFile[i], applied[i]);
-        }
+            lock (_stateLock)
+            {
+                for (var i = 0; i < forFile.Count && i < applied.Count; i++)
+                    ApplyDebuggerState(forFile[i], applied[i]);
+            }
+        }));
     }
 
     /// <summary>
@@ -1181,14 +1227,15 @@ public class DebugSession : IDisposable
             .Select(b => new FunctionBreakpointRequest(b.FunctionName, b.Condition, b.HitCondition))
             .ToArray();
 
-        var applied = RetryWhileModulesLoad(() => debugger.SetFunctionBreakpoints(requests));
-
         // SetFunctionBreakpoints preserves request order, so results line up with all
-        lock (_stateLock)
+        RetryWhileModulesLoad(() => debugger.SetFunctionBreakpoints(requests, applied =>
         {
-            for (var i = 0; i < all.Count && i < applied.Count; i++)
-                ApplyDebuggerState(all[i], applied[i]);
-        }
+            lock (_stateLock)
+            {
+                for (var i = 0; i < all.Count && i < applied.Count; i++)
+                    ApplyDebuggerState(all[i], applied[i]);
+            }
+        }));
     }
 
     /// <summary>
@@ -1202,8 +1249,7 @@ public class DebugSession : IDisposable
     /// apart from a real failure. Retrying them all is acceptable because these two requests are
     /// idempotent; the retries stay few and short, and whatever survives them reaches the caller.
     /// </summary>
-    private static List<AppliedBreakpoint> RetryWhileModulesLoad(
-        Func<List<AppliedBreakpoint>> apply)
+    private static void RetryWhileModulesLoad(Action apply)
     {
         const int MaxAttempts = 5;
 
@@ -1211,7 +1257,8 @@ public class DebugSession : IDisposable
         {
             try
             {
-                return apply();
+                apply();
+                return;
             }
             catch (Exception ex) when (attempt < MaxAttempts && ex is InvalidOperationException or ProtocolException)
             {

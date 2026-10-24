@@ -215,7 +215,8 @@ internal sealed class DapDebugger : IDisposable
     /// need that lock, which is why a caller on the teardown path has to be able to reach it.
     /// Only a request that changes nothing the session records may give up this way: one whose
     /// outcome the session tracks has to record it from the adapter's answer, as <see
-    /// cref="TryResume"/> and <see cref="TryPause"/> do, since the answer can land after the wait.
+    /// cref="TryResume"/>, <see cref="TryPause"/> and the breakpoint requests do, since the answer
+    /// can land after the wait.
     /// </summary>
     private void Send<TArgs>(DebugRequest<TArgs> request, TimeSpan timeout, string what)
         where TArgs : class, new()
@@ -238,14 +239,23 @@ internal sealed class DapDebugger : IDisposable
         where TArgs : class, new() =>
         Send(request, _requestTimeout, what);
 
-    private TResponse Send<TArgs, TResponse>(DebugRequestWithResponse<TArgs, TResponse> request, string what)
+    private TResponse Send<TArgs, TResponse>(
+        DebugRequestWithResponse<TArgs, TResponse> request, string what, Action<TResponse>? onAnswered = null)
         where TArgs : class, new()
         where TResponse : ResponseBody =>
-        Send(request, _requestTimeout, what);
+        Send(request, _requestTimeout, what, onAnswered);
 
-    /// <summary>As above, for a request that answers with something</summary>
+    /// <summary>
+    /// As above, for a request that answers with something. <paramref name="onAnswered"/> is how a
+    /// request whose outcome the session records may still be sent this way: it runs with the answer
+    /// whenever that comes, before or after the wait, on the adapter's callback thread, and must not
+    /// throw or block.
+    /// </summary>
     private TResponse Send<TArgs, TResponse>(
-        DebugRequestWithResponse<TArgs, TResponse> request, TimeSpan timeout, string what)
+        DebugRequestWithResponse<TArgs, TResponse> request,
+        TimeSpan timeout,
+        string what,
+        Action<TResponse>? onAnswered = null)
         where TArgs : class, new()
         where TResponse : ResponseBody
     {
@@ -255,7 +265,12 @@ internal sealed class DapDebugger : IDisposable
 
         _host.SendRequest(
             request,
-            (_, response) => completed.TrySetResult(response),
+            (_, response) =>
+            {
+                // Before signalling, so a caller still waiting never sees the answer unrecorded
+                onAnswered?.Invoke(response);
+                completed.TrySetResult(response);
+            },
             (_, ex) => completed.TrySetException(ex));
 
         Await(completed.Task, timeout, what);
@@ -488,9 +503,18 @@ internal sealed class DapDebugger : IDisposable
                 : new InnerThrownException(inner.FullTypeName, inner.Message, inner.StackTrace));
     }
 
-    public List<AppliedBreakpoint> SetBreakpoints(string filePath, IReadOnlyList<SourceBreakpointRequest> breakpoints)
+    /// <summary>
+    /// Replaces a file's breakpoints. What the adapter made of them goes to <paramref name="onApplied"/>
+    /// rather than back to the caller, because a request the caller stopped waiting for is still
+    /// applied once the adapter gets to it, and the session has to learn about it then.
+    /// <paramref name="onApplied"/> runs on the adapter's callback thread and must not throw or block.
+    /// </summary>
+    public void SetBreakpoints(
+        string filePath,
+        IReadOnlyList<SourceBreakpointRequest> breakpoints,
+        Action<List<AppliedBreakpoint>> onApplied)
     {
-        var response = Send(new SetBreakpointsRequest
+        Send(new SetBreakpointsRequest
         {
             Source = new Source { Path = filePath },
             Breakpoints = breakpoints
@@ -501,14 +525,15 @@ internal sealed class DapDebugger : IDisposable
                     HitCondition = b.HitCondition
                 })
                 .ToList()
-        }, "Setting breakpoints");
-
-        return Map(response.Breakpoints);
+        }, "Setting breakpoints", response => onApplied(Map(response.Breakpoints)));
     }
 
-    public List<AppliedBreakpoint> SetFunctionBreakpoints(IReadOnlyList<FunctionBreakpointRequest> breakpoints)
+    /// <summary>As <see cref="SetBreakpoints"/>, for every function breakpoint at once</summary>
+    public void SetFunctionBreakpoints(
+        IReadOnlyList<FunctionBreakpointRequest> breakpoints,
+        Action<List<AppliedBreakpoint>> onApplied)
     {
-        var response = Send(new SetFunctionBreakpointsRequest
+        Send(new SetFunctionBreakpointsRequest
         {
             Breakpoints = breakpoints
                 .Select(b => new FunctionBreakpoint(b.FunctionName)
@@ -517,9 +542,7 @@ internal sealed class DapDebugger : IDisposable
                     HitCondition = b.HitCondition
                 })
                 .ToList()
-        }, "Setting function breakpoints");
-
-        return Map(response.Breakpoints);
+        }, "Setting function breakpoints", response => onApplied(Map(response.Breakpoints)));
     }
 
     public bool TryContinue(int threadId, Action<Exception> onFailed) =>

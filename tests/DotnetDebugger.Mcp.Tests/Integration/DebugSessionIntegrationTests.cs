@@ -1412,6 +1412,74 @@ public sealed class DebugSessionIntegrationTests
     }
 
     /// <summary>
+    /// A breakpoint change the adapter does not answer in time is still applied once it is free,
+    /// since it has no cancel. Rolling the change back on the timeout left the session tracking a set
+    /// the adapter no longer held, so the change is kept and its verification recorded from the
+    /// adapter's late answer.
+    /// </summary>
+    [TestMethod]
+    public async Task SetBreakpoint_QueuedBehindAStalledEvaluation_IsKeptAndBindsOnceTheAdapterAnswers()
+    {
+        var line = TestPaths.FindMarkerLine("BREAKPOINT-TARGET");
+        var queuedLine = TestPaths.FindMarkerLine("STEP-TARGET");
+        var configuration = new ServerConfiguration { OperationTimeoutSeconds = 1, ExpressionEvaluationTimeoutMs = 200 };
+
+        using var debuggee = DebuggeeProcess.Start();
+        using var session = new DebugSession(1, configuration);
+
+        await session.Attach(debuggee.ProcessId);
+
+        session.SetBreakpoint(TestPaths.TestAppSource, line);
+        var state = WaitForStop(session);
+        var frames = session.GetStackTrace(state.StoppedThreadId!.Value);
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => session.EvaluateExpression("System.Threading.Thread.Sleep(5000)", frames[0].Id));
+
+        var timeout = Assert.ThrowsExactly<TimeoutException>(
+            () => session.SetBreakpoint(TestPaths.TestAppSource, queuedLine));
+
+        Assert.IsTrue(
+            DebuggeeProcess.SpinUntil(
+                () => session.ListBreakpoints().Any(b => b.Line == queuedLine && b.Verified), StopTimeout),
+            "The queued breakpoint was dropped, or its late answer was never recorded");
+
+        Assert.Contains("is kept", timeout.Message);
+    }
+
+    /// <summary>
+    /// Switching to a mode that hides exception stops releases the one in progress, and the session
+    /// counts the program as running before it sends anything. A filter request that failed or timed
+    /// out used to skip that release, leaving the program suspended while the session reported it
+    /// running - with no way back, since every later attempt found it running.
+    /// </summary>
+    [TestMethod]
+    public async Task SetExceptionBreakMode_QueuedBehindAStalledEvaluation_StillReleasesTheExceptionStop()
+    {
+        var configuration = new ServerConfiguration { OperationTimeoutSeconds = 1, ExpressionEvaluationTimeoutMs = 200 };
+
+        using var debuggee = DebuggeeProcess.Start("--throw");
+        using var session = new DebugSession(1, configuration);
+
+        session.SetExceptionBreakMode(ExceptionBreakMode.Always);
+
+        await session.Attach(debuggee.ProcessId);
+
+        var state = WaitForStop(session);
+        Assert.AreEqual("exception", state.StopReason);
+        var frames = session.GetStackTrace(state.StoppedThreadId!.Value);
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => session.EvaluateExpression("System.Threading.Thread.Sleep(5000)", frames[0].Id));
+
+        Assert.ThrowsExactly<TimeoutException>(() => session.SetExceptionBreakMode(ExceptionBreakMode.Never));
+
+        Assert.IsTrue(
+            debuggee.WaitForOutput(ResumeTimeout),
+            $"The exception stop was never released. State: running={session.GetExecutionState().IsRunning}");
+    }
+
+    /// <summary>
     /// Regression: a breakpoint set right after attaching can be answered unverified because the
     /// target module's symbols are not processed yet, and it binds a moment later on the
     /// module-load callback. SetBreakpoint waits for that, but the wait used to be bounded by the
