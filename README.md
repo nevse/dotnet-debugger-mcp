@@ -529,7 +529,7 @@ Set these as environment variables in your client's configuration:
 |---|---|---|
 | `DOTNET_DEBUGGER_MCP_LOG_LEVEL` | `Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical` | `Information` |
 | `DOTNET_DEBUGGER_MCP_MAX_SESSIONS` | Sessions open at once, each debugging its own process | `1` |
-| `DOTNET_DEBUGGER_MCP_OPERATION_TIMEOUT_SECONDS` | Bounds attaching, starting, pausing and closing a session. Steps and reads are not bounded | `30` |
+| `DOTNET_DEBUGGER_MCP_OPERATION_TIMEOUT_SECONDS` | Bounds every request to the debugger other than an evaluation: attaching, starting, pausing, stepping, reading state and closing a session. The debugger answers one request at a time, so a request it is still busy with holds up everything after it until this runs out | `30` |
 | `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
 | `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
 | `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
