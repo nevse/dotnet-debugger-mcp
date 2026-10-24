@@ -938,7 +938,10 @@ public sealed class DebugSessionIntegrationTests
 
         // Failing is the point. Hanging is what this replaced: in-process there was no failure to
         // report, because the process that would have reported it was the one that crashed.
-        Assert.ThrowsExactly<OperationCanceledException>(() => session.GetThreads());
+        // The request is answered with a cancellation, which reaches us wrapped as any adapter failure
+        // does now that every request is sent with a bound
+        var failure = Assert.ThrowsExactly<ProtocolException>(() => session.GetThreads());
+        Assert.IsInstanceOfType<OperationCanceledException>(failure.InnerException);
 
         // And the teardown has to come back rather than waiting out its timeouts against a debugger
         // that is not there
@@ -1362,6 +1365,50 @@ public sealed class DebugSessionIntegrationTests
         Assert.IsNull(state, "No breakpoint was set, so nothing should have stopped");
         Assert.IsGreaterThan(timeout / 2, elapsed.Elapsed, "WaitForStop returned without waiting");
         Assert.IsLessThan(timeout * 6, elapsed.Elapsed, "WaitForStop ignored its timeout");
+    }
+
+    /// <summary>
+    /// Regression: the adapter answers one request at a time, so an evaluation that does not come
+    /// back holds every request queued behind it, and those had no bound - a stack trace or a
+    /// continue waited for as long as the evaluation ran, forever if it never returned. Each now
+    /// gives up after the operation timeout. A continue given up on is still on its way, so the
+    /// session keeps counting the program as running, and the program does run once the adapter
+    /// gets to it.
+    /// </summary>
+    [TestMethod]
+    public async Task Requests_QueuedBehindAStalledEvaluation_GiveUpAfterTheOperationTimeout()
+    {
+        var line = TestPaths.FindMarkerLine("BREAKPOINT-TARGET");
+        var configuration = new ServerConfiguration { OperationTimeoutSeconds = 1, ExpressionEvaluationTimeoutMs = 200 };
+        var operationTimeout = TimeSpan.FromSeconds(configuration.OperationTimeoutSeconds);
+
+        using var debuggee = DebuggeeProcess.Start();
+        using var session = new DebugSession(1, configuration);
+
+        await session.Attach(debuggee.ProcessId);
+
+        session.SetBreakpoint(TestPaths.TestAppSource, line);
+        var state = WaitForStop(session);
+        var threadId = state.StoppedThreadId!.Value;
+        var frames = session.GetStackTrace(threadId);
+
+        // Long enough to outlast both waits below on a loaded runner, short enough to see it end
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => session.EvaluateExpression("System.Threading.Thread.Sleep(8000)", frames[0].Id));
+
+        var elapsed = Stopwatch.StartNew();
+        var stackTrace = Assert.ThrowsExactly<TimeoutException>(() => session.GetStackTrace(threadId));
+        elapsed.Stop();
+
+        Assert.Contains("still working", stackTrace.Message);
+        Assert.IsLessThan(operationTimeout * 3, elapsed.Elapsed, "The stack trace waited out the evaluation");
+
+        Assert.ThrowsExactly<TimeoutException>(() => session.Continue());
+        Assert.IsTrue(session.GetExecutionState().IsRunning, "An unconfirmed continue was counted as refused");
+
+        // The continue lands once the evaluation ends, and the loop comes round to the breakpoint
+        // again - a stop only a program that really resumed can report
+        Assert.AreEqual("breakpoint", WaitForStop(session).StopReason);
     }
 
     /// <summary>

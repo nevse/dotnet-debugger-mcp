@@ -521,7 +521,7 @@ public class DebugSession : IDisposable
 
         McpLogger.LogDebugSessionEvent(_sessionId, logEvent, what);
 
-        var debugger = new DapDebugger(LogMessage);
+        var debugger = new DapDebugger(_operationTimeout, LogMessage);
 
         debugger.OnStopped += OnDebuggerStopped;
         debugger.OnContinued += OnDebuggerContinued;
@@ -606,27 +606,37 @@ public class DebugSession : IDisposable
                     lock (_stateLock)
                         debugger = _phase == SessionPhase.Live ? _debugger : null;
 
-                    debugger?.Continue(threadId);
-                }
-                catch (Exception ex)
-                {
-                    // The process really is suspended now, so say so rather than leaving the session
-                    // claiming it runs - that is the one thing worse than an unwanted stop
-                    lock (_stateLock)
+                    if (debugger?.TryContinue(threadId, ReportTheStop) == false)
                     {
-                        if (_phase == SessionPhase.Live)
-                        {
-                            _isRunning = false;
-                            _lastStoppedThreadId = threadId;
-                            _lastStopReason = ExceptionStopReason;
-                        }
+                        McpLogger.LogDebugSessionEvent(_sessionId, "ExceptionIgnored",
+                            $"Resuming thread {threadId} is unconfirmed; the stop is reported if it is refused");
                     }
-
-                    McpLogger.LogDebugSessionEvent(_sessionId, "ExceptionIgnored",
-                        $"Could not resume thread {threadId}, reporting the stop instead: {ex.Message}");
+                }
+                // A refusal has already been reported from the adapter's answer
+                catch (Exception ex) when (ex is not ProtocolException)
+                {
+                    ReportTheStop(ex);
                 }
             }
         });
+
+        // The process really is suspended now, so say so rather than leaving the session claiming
+        // it runs - that is the one thing worse than an unwanted stop
+        void ReportTheStop(Exception ex)
+        {
+            lock (_stateLock)
+            {
+                if (_phase == SessionPhase.Live)
+                {
+                    _isRunning = false;
+                    _lastStoppedThreadId = threadId;
+                    _lastStopReason = ExceptionStopReason;
+                }
+            }
+
+            McpLogger.LogDebugSessionEvent(_sessionId, "ExceptionIgnored",
+                $"Could not resume thread {threadId}, reporting the stop instead: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1395,14 +1405,14 @@ public class DebugSession : IDisposable
         var debugger = RequireLiveDebugger();
 
         // Continuing an already-running process throws CORDBG_E_SUPERFLOUS_CONTINUE out of COM.
-        if (!TryBeginResume())
+        if (!TryBeginResume(out var stoppedThreadId))
         {
             McpLogger.LogDebugSessionEvent(_sessionId, "Continue", "Already running - ignored");
             return false;
         }
 
         McpLogger.LogDebugSessionEvent(_sessionId, "Continue", "Resuming execution");
-        Resume(() => debugger.Continue(StoppedThreadOrFirst(debugger)));
+        Resume("Continue", onFailed => debugger.TryContinue(stoppedThreadId ?? FirstThread(debugger), onFailed));
         return true;
     }
 
@@ -1515,7 +1525,7 @@ public class DebugSession : IDisposable
 
         McpLogger.LogDebugSessionEvent(_sessionId, "StepOver", $"Thread {threadId}");
         BeginStep();
-        Resume(() => debugger.StepOver(threadId));
+        Resume("Step over", onFailed => debugger.TryStepOver(threadId, onFailed));
     }
 
     /// <summary>
@@ -1527,7 +1537,7 @@ public class DebugSession : IDisposable
 
         McpLogger.LogDebugSessionEvent(_sessionId, "StepInto", $"Thread {threadId}");
         BeginStep();
-        Resume(() => debugger.StepIn(threadId));
+        Resume("Step into", onFailed => debugger.TryStepIn(threadId, onFailed));
     }
 
     /// <summary>
@@ -1539,7 +1549,7 @@ public class DebugSession : IDisposable
 
         McpLogger.LogDebugSessionEvent(_sessionId, "StepOut", $"Thread {threadId}");
         BeginStep();
-        Resume(() => debugger.StepOut(threadId));
+        Resume("Step out", onFailed => debugger.TryStepOut(threadId, onFailed));
     }
 
     /// <summary>
@@ -1555,7 +1565,7 @@ public class DebugSession : IDisposable
 
         // Off the caller's thread, as evaluation is everywhere else here: the request blocks until
         // the adapter has run every getter it needs
-        return await Task.Run(() => debugger.GetException(threadId)).WaitAsync(_evaluationTimeout);
+        return await Task.Run(() => debugger.GetException(threadId, _evaluationTimeout));
     }
 
     /// <summary>
@@ -1565,7 +1575,7 @@ public class DebugSession : IDisposable
     {
         var debugger = RequireLiveDebugger();
 
-        return await Task.Run(() => debugger.Evaluate(expression, frameId)).WaitAsync(_evaluationTimeout);
+        return await Task.Run(() => debugger.Evaluate(expression, frameId, _evaluationTimeout));
     }
 
     /// <summary>
@@ -1732,10 +1742,19 @@ public class DebugSession : IDisposable
     /// Marks the process as running before it is actually resumed, so that a stop event arriving
     /// during the resume call is not overwritten by this thread afterwards.
     /// </summary>
-    private bool TryBeginResume()
+    private bool TryBeginResume() => TryBeginResume(out _);
+
+    /// <summary>
+    /// As above, also handing back the thread the process stopped on. It has to be taken here,
+    /// because beginning the resume clears it, and asking the adapter instead costs a request that
+    /// queues behind whatever the adapter is busy with.
+    /// </summary>
+    private bool TryBeginResume(out int? stoppedThreadId)
     {
         lock (_stateLock)
         {
+            stoppedThreadId = _lastStoppedThreadId;
+
             if (_isRunning)
                 return false;
 
@@ -1745,20 +1764,38 @@ public class DebugSession : IDisposable
         }
     }
 
-    private void Resume(Action resume)
+    /// <summary>
+    /// Sends a resume the session has already counted as running. An unconfirmed one is left counted
+    /// that way, since it is still on its way and a stop event corrects the state when it lands; a
+    /// refusal is what turns it back, whenever the adapter gets round to it.
+    /// </summary>
+    private void Resume(string what, Func<Action<Exception>, bool> resume)
     {
+        bool confirmed;
+
         try
         {
-            resume();
+            confirmed = resume(_ => MarkNotRunning());
         }
         catch
+        {
+            MarkNotRunning();
+            throw;
+        }
+
+        if (!confirmed)
+            throw new TimeoutException(
+                $"{what} was sent, but the debug adapter did not confirm it within "
+                + $"{_operationTimeout.TotalSeconds:0.#}s. The program is counted as running: "
+                + "wait_for_stop reports the next stop, and a refused resume is corrected when the "
+                + "adapter answers.");
+
+        void MarkNotRunning()
         {
             lock (_stateLock)
             {
                 _isRunning = false;
             }
-
-            throw;
         }
     }
 
@@ -1778,20 +1815,11 @@ public class DebugSession : IDisposable
     /// right answer whenever there is one; otherwise any thread will do, since SharpDbg stops and
     /// resumes the whole process regardless of which thread is named.
     /// </summary>
-    private int StoppedThreadOrFirst(DapDebugger debugger)
-    {
-        lock (_stateLock)
-        {
-            if (_lastStoppedThreadId is { } stopped)
-                return stopped;
-        }
-
-        return debugger.GetThreads().FirstOrDefault().Id;
-    }
+    private static int FirstThread(DapDebugger debugger) => debugger.GetThreads().FirstOrDefault().Id;
 
     /// <summary>
-    /// As above, but null rather than a hang when the adapter does not answer in time. Only the
-    /// retained stopped thread is free; anything else costs a request to the adapter.
+    /// The stopped thread, or else the first one, or null when the adapter does not answer in time.
+    /// Only the retained stopped thread is free; anything else costs a request to the adapter.
     /// </summary>
     private int? StoppedThreadOrFirst(DapDebugger debugger, TimeSpan timeout)
     {
