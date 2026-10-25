@@ -24,6 +24,7 @@ internal sealed class DapDebugger : IDisposable
     private readonly DebugProtocolHost _host;
     private readonly ChildProcessDebugAdapter.AdapterProcess _adapter;
     private readonly Action<string>? _logger;
+    private readonly TimeSpan _requestTimeout;
     private readonly TaskCompletionSource _initialized =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -59,9 +60,15 @@ internal sealed class DapDebugger : IDisposable
     /// <summary>The debugger's own process, which is a child of this one</summary>
     public int AdapterProcessId => _adapter.ProcessId;
 
-    public DapDebugger(Action<string>? logger = null)
+    /// <param name="requestTimeout">
+    /// How long any request without a bound of its own may take. SharpDbg answers requests one at a
+    /// time, so the first one to stall holds off every later one, the disconnect that would tear the
+    /// session down included; without a bound its caller waits for the life of the process.
+    /// </param>
+    public DapDebugger(TimeSpan requestTimeout, Action<string>? logger = null)
     {
         _logger = logger;
+        _requestTimeout = requestTimeout;
 
         var (input, output, adapter) = ChildProcessDebugAdapter.Start(logger);
         _adapter = adapter;
@@ -97,7 +104,7 @@ internal sealed class DapDebugger : IDisposable
     {
         Initialize();
 
-        _host.SendRequestSync(new AttachRequest
+        Send(new AttachRequest
         {
             ConfigurationProperties = new Dictionary<string, JToken>
             {
@@ -107,13 +114,13 @@ internal sealed class DapDebugger : IDisposable
                 ["console"] = "internalConsole",
                 ["justMyCode"] = justMyCode
             }
-        });
+        }, "Attaching");
 
         await _initialized.Task.WaitAsync(timeout).ConfigureAwait(false);
 
         SetExceptionBreakpoints(filters, typeCondition);
 
-        _host.SendRequestSync(new ConfigurationDoneRequest());
+        Send(new ConfigurationDoneRequest(), _requestTimeout, "Finishing the attach");
     }
 
     /// <summary>
@@ -151,7 +158,7 @@ internal sealed class DapDebugger : IDisposable
         if (mobile is not null)
             AddMobileOptions(configuration, mobile);
 
-        _host.SendRequestSync(new LaunchRequest { ConfigurationProperties = configuration });
+        Send(new LaunchRequest { ConfigurationProperties = configuration }, "Launching");
 
         await _initialized.Task.WaitAsync(timeout).ConfigureAwait(false);
 
@@ -191,12 +198,12 @@ internal sealed class DapDebugger : IDisposable
     /// <summary>
     /// Starts the program prepared by <see cref="Launch"/>. The request returns once the process has
     /// been created and attached to, so a stop can already be on its way when it does.
-    /// This is the one request that creates a process, which is why it is timed: a handler that never
-    /// returns would otherwise hang start_program for good. <see cref="Disconnect"/> is timed too, so
-    /// that a start which expires can still tear its half-made session down.
+    /// It is timed by the caller rather than by the request timeout, because a mobile start deploys
+    /// to a device first and has a timeout of its own. <see cref="Disconnect"/> is timed too, so that
+    /// a start which expires can still tear its half-made session down.
     /// </summary>
     public void Start(TimeSpan timeout) =>
-        SendRequestWithTimeout(new ConfigurationDoneRequest(), timeout, "Starting the program");
+        Send(new ConfigurationDoneRequest(), timeout, "Starting the program");
 
     /// <summary>
     /// Sends a request and waits for it, giving up after <paramref name="timeout"/>.
@@ -205,10 +212,13 @@ internal sealed class DapDebugger : IDisposable
     /// Giving up stops us waiting; it does not stop the adapter. SharpDbg implements no cancel
     /// handler, and it serializes every request behind one lock, so a stalled handler also holds off
     /// the disconnect a teardown would send. Disposing the adapter is the only step that does not
-    /// need that lock, which is why a caller on the teardown path has to be able to reach it. A
-    /// caller that is not on that path may pass an infinite timeout and wait, though none does now.
+    /// need that lock, which is why a caller on the teardown path has to be able to reach it.
+    /// Only a request that changes nothing the session records may give up this way: one whose
+    /// outcome the session tracks has to record it from the adapter's answer, as <see
+    /// cref="TryResume"/>, <see cref="TryPause"/> and the breakpoint requests do, since the answer
+    /// can land after the wait.
     /// </summary>
-    private void SendRequestWithTimeout<TArgs>(DebugRequest<TArgs> request, TimeSpan timeout, string what)
+    private void Send<TArgs>(DebugRequest<TArgs> request, TimeSpan timeout, string what)
         where TArgs : class, new()
     {
         // Same guard SendRequestSync applies: the reader thread delivers events and reads responses,
@@ -222,16 +232,76 @@ internal sealed class DapDebugger : IDisposable
             _ => completed.TrySetResult(),
             (_, ex) => completed.TrySetException(ex));
 
+        Await(completed.Task, timeout, what);
+    }
+
+    private void Send<TArgs>(DebugRequest<TArgs> request, string what)
+        where TArgs : class, new() =>
+        Send(request, _requestTimeout, what);
+
+    private TResponse Send<TArgs, TResponse>(
+        DebugRequestWithResponse<TArgs, TResponse> request, string what, Action<TResponse>? onAnswered = null)
+        where TArgs : class, new()
+        where TResponse : ResponseBody =>
+        Send(request, _requestTimeout, what, onAnswered);
+
+    /// <summary>
+    /// As above, for a request that answers with something. <paramref name="onAnswered"/> is how a
+    /// request whose outcome the session records may still be sent this way: it runs with the answer
+    /// whenever that comes, before or after the wait, on the adapter's callback thread, and must not
+    /// throw or block.
+    /// </summary>
+    private TResponse Send<TArgs, TResponse>(
+        DebugRequestWithResponse<TArgs, TResponse> request,
+        TimeSpan timeout,
+        string what,
+        Action<TResponse>? onAnswered = null)
+        where TArgs : class, new()
+        where TResponse : ResponseBody
+    {
+        _host.VerifySynchronousOperationAllowed();
+
+        var completed = new TaskCompletionSource<TResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _host.SendRequest(
+            request,
+            (_, response) =>
+            {
+                // Before signalling, so a caller still waiting never sees the answer unrecorded
+                onAnswered?.Invoke(response);
+                completed.TrySetResult(response);
+            },
+            (_, ex) => completed.TrySetException(ex));
+
+        Await(completed.Task, timeout, what);
+        return completed.Task.Result;
+    }
+
+    private static void Await(Task completed, TimeSpan timeout, string what)
+    {
         // Waiting on the handle rather than on the task: Task.Wait throws the fault wrapped in an
         // AggregateException, which would hide the ProtocolException the line below exists to
         // rethrow with its own type and stack, the way SendRequestSync surfaces one.
-        if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
+        if (!((IAsyncResult)completed).AsyncWaitHandle.WaitOne(timeout))
+        {
+            LogLateFailure(completed, what);
+
             throw new TimeoutException(
                 $"{what} did not complete within {timeout.TotalSeconds:0.#}s. The debug adapter is "
-                + "still working on the request.");
+                + "still working on the request, and answers nothing else until it is done.");
+        }
 
-        completed.Task.GetAwaiter().GetResult();
+        completed.GetAwaiter().GetResult();
     }
+
+    /// <summary>Nobody is left to receive an exception from a request that fails after the wait</summary>
+    private static void LogLateFailure(Task completed, string what) =>
+        completed.ContinueWith(
+            t => McpLogger.LogWarning(
+                "{Request} failed after the caller stopped waiting: {Error}",
+                what,
+                t.Exception!.GetBaseException().Message),
+            TaskContinuationOptions.OnlyOnFaulted);
 
     /// <summary>
     /// Says which exceptions should suspend the debuggee. Sent on attach and launch, and again whenever
@@ -259,11 +329,11 @@ internal sealed class DapDebugger : IDisposable
                 filter => new ExceptionFilterOptions { FilterId = filter, Condition = typeCondition })];
         }
 
-        _host.SendRequestSync(request);
+        Send(request, _requestTimeout, "Setting exception breakpoints");
     }
 
     private void Initialize() =>
-        _host.SendRequestSync(new InitializeRequest
+        Send(new InitializeRequest
         {
             ClientID = "dotnet-debugger-mcp",
             ClientName = ".NET Debugger MCP Server",
@@ -273,19 +343,18 @@ internal sealed class DapDebugger : IDisposable
             ColumnsStartAt1 = true,
             PathFormat = InitializeArguments.PathFormatValue.Path,
             SupportsVariableType = true
-        });
+        }, "Initializing the debug adapter");
 
     public List<(int Id, string Name)> GetThreads()
     {
-        var response = _host.SendRequestSync(new ThreadsRequest());
+        var response = Send(new ThreadsRequest(), "Listing threads");
         return response.Threads?.Select(t => (t.Id, t.Name)).ToList() ?? [];
     }
 
     /// <summary>
     /// The debuggee's threads, or null if the adapter did not answer within <paramref
     /// name="timeout"/>. Exists for the pause path, which needs a thread to pause and so asks for
-    /// one first: an unbounded lookup there would hang before the pause was even sent, which is
-    /// exactly what bounding the pause is meant to prevent.
+    /// one first, within the same deadline as the pause rather than a request timeout of its own.
     /// </summary>
     public List<(int Id, string Name)>? TryGetThreads(TimeSpan timeout)
     {
@@ -300,13 +369,7 @@ internal sealed class DapDebugger : IDisposable
 
         if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
         {
-            // Nobody is left to receive an exception from a request that fails after this point
-            completed.Task.ContinueWith(
-                t => McpLogger.LogWarning(
-                    "Threads request failed after the caller stopped waiting: {Error}",
-                    t.Exception!.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-
+            LogLateFailure(completed.Task, "Listing threads");
             return null;
         }
 
@@ -316,7 +379,7 @@ internal sealed class DapDebugger : IDisposable
 
     public List<StackFrameInfo> GetStackTrace(int threadId)
     {
-        var response = _host.SendRequestSync(new StackTraceRequest { ThreadId = threadId });
+        var response = Send(new StackTraceRequest { ThreadId = threadId }, "Reading the stack trace");
 
         return response.StackFrames?.Select(f => new StackFrameInfo(
             f.Id,
@@ -334,7 +397,7 @@ internal sealed class DapDebugger : IDisposable
     /// </summary>
     public List<VariableInfo> GetFrameVariables(int frameId)
     {
-        var scopes = _host.SendRequestSync(new ScopesRequest { FrameId = frameId });
+        var scopes = Send(new ScopesRequest { FrameId = frameId }, "Reading the frame's scopes");
         var first = scopes.Scopes?.FirstOrDefault();
 
         return first is null ? [] : GetVariables(first.VariablesReference);
@@ -342,7 +405,7 @@ internal sealed class DapDebugger : IDisposable
 
     public List<VariableInfo> GetVariables(int variablesReference)
     {
-        var response = _host.SendRequestSync(new VariablesRequest { VariablesReference = variablesReference });
+        var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
 
         return response.Variables?
             .Select(v => new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
@@ -398,9 +461,14 @@ internal sealed class DapDebugger : IDisposable
         return shortened.ToString();
     }
 
-    public EvaluationResult Evaluate(string expression, int frameId)
+    /// <summary>
+    /// Bounded by <paramref name="timeout"/> rather than the request timeout, because evaluation
+    /// runs code in the target and is configured on its own
+    /// </summary>
+    public EvaluationResult Evaluate(string expression, int frameId, TimeSpan timeout)
     {
-        var response = _host.SendRequestSync(new EvaluateRequest { Expression = expression, FrameId = frameId });
+        var response = Send(
+            new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression");
         return new EvaluationResult(response.Result, response.Type, response.VariablesReference);
     }
 
@@ -418,9 +486,9 @@ internal sealed class DapDebugger : IDisposable
     /// says, and $exception reads them on demand for the types whose code carries anything at all
     /// (COMException, Win32Exception).
     /// </summary>
-    public ThrownException GetException(int threadId)
+    public ThrownException GetException(int threadId, TimeSpan timeout)
     {
-        var response = _host.SendRequestSync(new ExceptionInfoRequest { ThreadId = threadId });
+        var response = Send(new ExceptionInfoRequest { ThreadId = threadId }, timeout, "Reading the exception");
         var details = response.Details;
 
         // The debugger sends the direct inner exception only, as a list of one
@@ -435,9 +503,18 @@ internal sealed class DapDebugger : IDisposable
                 : new InnerThrownException(inner.FullTypeName, inner.Message, inner.StackTrace));
     }
 
-    public List<AppliedBreakpoint> SetBreakpoints(string filePath, IReadOnlyList<SourceBreakpointRequest> breakpoints)
+    /// <summary>
+    /// Replaces a file's breakpoints. What the adapter made of them goes to <paramref name="onApplied"/>
+    /// rather than back to the caller, because a request the caller stopped waiting for is still
+    /// applied once the adapter gets to it, and the session has to learn about it then.
+    /// <paramref name="onApplied"/> runs on the adapter's callback thread and must not throw or block.
+    /// </summary>
+    public void SetBreakpoints(
+        string filePath,
+        IReadOnlyList<SourceBreakpointRequest> breakpoints,
+        Action<List<AppliedBreakpoint>> onApplied)
     {
-        var response = _host.SendRequestSync(new SetBreakpointsRequest
+        Send(new SetBreakpointsRequest
         {
             Source = new Source { Path = filePath },
             Breakpoints = breakpoints
@@ -448,14 +525,15 @@ internal sealed class DapDebugger : IDisposable
                     HitCondition = b.HitCondition
                 })
                 .ToList()
-        });
-
-        return Map(response.Breakpoints);
+        }, "Setting breakpoints", response => onApplied(Map(response.Breakpoints)));
     }
 
-    public List<AppliedBreakpoint> SetFunctionBreakpoints(IReadOnlyList<FunctionBreakpointRequest> breakpoints)
+    /// <summary>As <see cref="SetBreakpoints"/>, for every function breakpoint at once</summary>
+    public void SetFunctionBreakpoints(
+        IReadOnlyList<FunctionBreakpointRequest> breakpoints,
+        Action<List<AppliedBreakpoint>> onApplied)
     {
-        var response = _host.SendRequestSync(new SetFunctionBreakpointsRequest
+        Send(new SetFunctionBreakpointsRequest
         {
             Breakpoints = breakpoints
                 .Select(b => new FunctionBreakpoint(b.FunctionName)
@@ -464,12 +542,11 @@ internal sealed class DapDebugger : IDisposable
                     HitCondition = b.HitCondition
                 })
                 .ToList()
-        });
-
-        return Map(response.Breakpoints);
+        }, "Setting function breakpoints", response => onApplied(Map(response.Breakpoints)));
     }
 
-    public void Continue(int threadId) => _host.SendRequestSync(new ContinueRequest { ThreadId = threadId });
+    public bool TryContinue(int threadId, Action<Exception> onFailed) =>
+        TryResume(new ContinueRequest { ThreadId = threadId }, "Continue", onFailed);
 
     /// <summary>
     /// Suspends the debuggee, returning whether the adapter confirmed it within <paramref
@@ -506,13 +583,7 @@ internal sealed class DapDebugger : IDisposable
 
         if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(timeout))
         {
-            // Nobody is left to receive an exception from a request that fails after this point
-            completed.Task.ContinueWith(
-                t => McpLogger.LogWarning(
-                    "Pause failed after the caller stopped waiting: {Error}",
-                    t.Exception!.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-
+            LogLateFailure(completed.Task, "Pause");
             return false;
         }
 
@@ -522,11 +593,52 @@ internal sealed class DapDebugger : IDisposable
         return true;
     }
 
-    public void StepOver(int threadId) => _host.SendRequestSync(new NextRequest { ThreadId = threadId });
+    public bool TryStepOver(int threadId, Action<Exception> onFailed) =>
+        TryResume(new NextRequest { ThreadId = threadId }, "Step over", onFailed);
 
-    public void StepIn(int threadId) => _host.SendRequestSync(new StepInRequest { ThreadId = threadId });
+    public bool TryStepIn(int threadId, Action<Exception> onFailed) =>
+        TryResume(new StepInRequest { ThreadId = threadId }, "Step into", onFailed);
 
-    public void StepOut(int threadId) => _host.SendRequestSync(new StepOutRequest { ThreadId = threadId });
+    public bool TryStepOut(int threadId, Action<Exception> onFailed) =>
+        TryResume(new StepOutRequest { ThreadId = threadId }, "Step out", onFailed);
+
+    /// <summary>
+    /// Resumes the debuggee, returning whether the adapter confirmed it within the request timeout.
+    /// The mirror of <see cref="TryPause"/>: the session counts the program as running before it
+    /// sends this, so what has to be recorded from the adapter's answer is a refusal, and <paramref
+    /// name="onFailed"/> does that whenever it comes - giving up stops us waiting, not the adapter,
+    /// and a resume refused after the wait would otherwise leave the session claiming a program runs
+    /// while it stands still.
+    ///
+    /// <paramref name="onFailed"/> runs on the adapter's callback thread and must not throw or
+    /// block. A failure that arrives while this call is still waiting is also thrown here.
+    /// </summary>
+    private bool TryResume<TArgs>(DebugRequest<TArgs> request, string what, Action<Exception> onFailed)
+        where TArgs : class, new()
+    {
+        _host.VerifySynchronousOperationAllowed();
+
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _host.SendRequest(
+            request,
+            _ => completed.TrySetResult(),
+            (_, ex) =>
+            {
+                // Before signalling, for the same reason TryPause records its stop first
+                onFailed(ex);
+                completed.TrySetException(ex);
+            });
+
+        if (!((IAsyncResult)completed.Task).AsyncWaitHandle.WaitOne(_requestTimeout))
+        {
+            LogLateFailure(completed.Task, what);
+            return false;
+        }
+
+        completed.Task.GetAwaiter().GetResult();
+        return true;
+    }
 
     /// <summary>
     /// Releases the debuggee, terminating it when this session started it. Since 0.1.13 the terminate
@@ -535,7 +647,7 @@ internal sealed class DapDebugger : IDisposable
     /// adapter's Dispose and every later operation on the session.
     /// </summary>
     public void Disconnect(bool terminateDebuggee, TimeSpan timeout) =>
-        SendRequestWithTimeout(
+        Send(
             new DisconnectRequest { TerminateDebuggee = terminateDebuggee }, timeout, "Disconnecting");
 
     private static List<AppliedBreakpoint> Map(List<MSBreakpoint>? breakpoints)
