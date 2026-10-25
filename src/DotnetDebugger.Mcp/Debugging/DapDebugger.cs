@@ -30,9 +30,13 @@ internal sealed class DapDebugger : IDisposable
 
     private bool _disposed;
 
-    // The lazy references withheld since the last stop. Withholding one is not enough by itself:
-    // the adapter still honours it, and references are sequential, so one can be guessed.
-    private readonly HashSet<int> _withheldReferences = [];
+    private bool _allowFuncEval = true;
+
+    // With function evaluation off, the references handed out since the last stop, which are the only
+    // ones a caller may expand. Withholding a lazy property's reference is not enough by itself: the
+    // adapter still honours it, references are sequential, and it allocates one for every property of
+    // an object while answering with a page of them, so some are never seen to be withheld at all.
+    private readonly HashSet<int> _handedOut = [];
 
     /// <summary>
     /// Thread id, reason, and the adapter ids of the breakpoints the stop is attributed to. A DAP stop
@@ -108,6 +112,7 @@ internal sealed class DapDebugger : IDisposable
         TimeSpan timeout)
     {
         Initialize();
+        _allowFuncEval = allowFuncEval;
 
         Send(new AttachRequest
         {
@@ -148,6 +153,7 @@ internal sealed class DapDebugger : IDisposable
         MobileLaunchOptions? mobile = null)
     {
         Initialize();
+        _allowFuncEval = allowFuncEval;
 
         var configuration = new Dictionary<string, JToken>
         {
@@ -415,39 +421,52 @@ internal sealed class DapDebugger : IDisposable
         var scopes = Send(new ScopesRequest { FrameId = frameId }, "Reading the frame's scopes");
         var first = scopes.Scopes?.FirstOrDefault();
 
-        return first is null ? [] : GetVariables(first.VariablesReference);
+        return first is null ? [] : ReadVariables(first.VariablesReference);
     }
 
     /// <summary>
     /// With function evaluation off a property comes back lazy: no value, and a reference whose
     /// expansion runs the getter after all. That reference is withheld, so turning evaluation off
-    /// means no getter runs, not one that runs a step later. It is also refused when asked for, since
-    /// the adapter would still run the getter for it.
+    /// means no getter runs, not one that runs a step later. Only a reference this class handed out
+    /// in the current stop is expanded, since the adapter would run the getter for a guessed one.
     /// </summary>
     public List<VariableInfo> GetVariables(int variablesReference)
     {
-        lock (_withheldReferences)
+        if (!_allowFuncEval)
         {
-            if (_withheldReferences.Contains(variablesReference))
-                throw new InvalidOperationException(
-                    "This is a property, and reading it runs its getter, which function evaluation being off refuses");
+            lock (_handedOut)
+            {
+                if (!_handedOut.Contains(variablesReference))
+                    throw new InvalidOperationException(
+                        $"Variables reference {variablesReference} was not handed out at this stop. With function " +
+                        "evaluation off only references from get_variables, expand_variable and evaluate_expression " +
+                        "at the current stop can be expanded");
+            }
         }
 
+        return ReadVariables(variablesReference);
+    }
+
+    private List<VariableInfo> ReadVariables(int variablesReference)
+    {
         var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
 
         return response.Variables?
             .Select(v => v.PresentationHint?.Lazy == true
-                ? Withhold(v)
-                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
+                ? new VariableInfo(NameWithoutType(v.Name, v.Type), NotEvaluated, v.Type, 0)
+                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, HandOut(v.VariablesReference)))
             .ToList() ?? [];
     }
 
-    private VariableInfo Withhold(Variable variable)
+    private int HandOut(int variablesReference)
     {
-        lock (_withheldReferences)
-            _withheldReferences.Add(variable.VariablesReference);
+        if (variablesReference > 0 && !_allowFuncEval)
+        {
+            lock (_handedOut)
+                _handedOut.Add(variablesReference);
+        }
 
-        return new VariableInfo(NameWithoutType(variable.Name, variable.Type), NotEvaluated, variable.Type, 0);
+        return variablesReference;
     }
 
     private const string NotEvaluated = "[not evaluated: function evaluation is off]";
@@ -509,7 +528,7 @@ internal sealed class DapDebugger : IDisposable
     {
         var response = Send(
             new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression");
-        return new EvaluationResult(response.Result, response.Type, response.VariablesReference);
+        return new EvaluationResult(response.Result, response.Type, HandOut(response.VariablesReference));
     }
 
     /// <summary>
@@ -716,8 +735,8 @@ internal sealed class DapDebugger : IDisposable
     {
         // A reference only applies to the stop it was taken in, and the adapter may hand the same
         // number out again for something else at the next one
-        lock (_withheldReferences)
-            _withheldReferences.Clear();
+        lock (_handedOut)
+            _handedOut.Clear();
 
         OnStopped?.Invoke(stopped.ThreadId ?? 0, ReasonToString(stopped.Reason), stopped.HitBreakpointIds);
     }

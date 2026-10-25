@@ -564,6 +564,11 @@ public sealed class DebugSessionIntegrationTests
         }
         Assert.IsGreaterThan(0, withheld, "The withheld references were not refused");
 
+        // A reference evaluate_expression hands out is one of those that may be expanded
+        var evaluated = await session.EvaluateExpression("point", frames[0].Id);
+        var evaluatedMembers = await session.ExpandVariable(evaluated.VariablesReference);
+        Assert.IsTrue(evaluatedMembers.Any(m => m.Name == "X"));
+
         var plain = await session.EvaluateExpression("next + 1", frames[0].Id);
         Assert.AreEqual((int.Parse(next.Value) + 1).ToString(), plain.Result);
 
