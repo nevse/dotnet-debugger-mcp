@@ -741,6 +741,9 @@ public sealed class DebuggingTools
         "whenever any breakpoint in the same file is added, changed or removed. " +
         "Calling this again for the same file and line replaces both conditions, so omitting one " +
         "clears it. " +
+        "With DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false a condition that calls a getter or method " +
+        "cannot be evaluated, and the breakpoint then stops at every hit as if it had no condition; " +
+        "compare fields instead. " +
         "verified=false means the breakpoint is not bound: usually the path or line does not exist " +
         "in the target, but a breakpoint in an assembly that has not been loaded yet binds by " +
         "itself once it loads, so check list_breakpoints again rather than setting it repeatedly.")]
@@ -1037,6 +1040,7 @@ public sealed class DebuggingTools
 
     [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Get local variables for a specific stack frame ID. " +
+        "With DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false a property shows as [not evaluated: function evaluation is off]. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string GetVariables(int frame_id, int? session_id = null)
@@ -1092,6 +1096,7 @@ public sealed class DebuggingTools
         "Expand a variables_reference into its members, which may themselves carry references to " +
         "expand further. References come from get_variables, from evaluate_expression and from this " +
         "tool. Expand while still stopped - a reference only applies to the stop it was taken in. " +
+        "With DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false a property shows as [not evaluated: function evaluation is off]. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string ExpandVariable(int variables_reference, int? session_id = null)
@@ -1356,7 +1361,10 @@ public sealed class DebuggingTools
     [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Evaluate a C# expression in the context of a stack frame. An expression that runs code in " +
         "the target - a property getter, ToString(), any method call - is allowed and does not cost " +
-        "the session. When the result is an object, variables_reference is non-zero and can be " +
+        "the session, unless the person running the server set DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false: " +
+        "then such an expression fails and only fields, locals and arguments can be read (reading a " +
+        "static field of a type not yet initialized still runs its static constructor). " +
+        "When the result is an object, variables_reference is non-zero and can be " +
         "walked with expand_variable. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]

@@ -30,6 +30,19 @@ internal sealed class DapDebugger : IDisposable
 
     private bool _disposed;
 
+    private bool _allowFuncEval = true;
+
+    // With function evaluation off, the references handed out since the last stop, which are the only
+    // ones a caller may expand. Withholding a lazy property's reference is not enough by itself: the
+    // adapter still honours it, references are sequential, and it allocates one for every property of
+    // an object while answering with a page of them, so some are never seen to be withheld at all.
+    private readonly HashSet<int> _handedOut = [];
+
+    // Advanced, under the same lock, whenever the references stop applying: when a resume is sent and
+    // when a stop arrives. A request records the value as it is sent, and its answer hands references
+    // out only if nothing advanced it since, so an answer from one stop cannot add to the next.
+    private int _stopGeneration;
+
     /// <summary>
     /// Thread id, reason, and the adapter ids of the breakpoints the stop is attributed to. A DAP stop
     /// carries no source location - SharpDbg does attach one as an additional property, but
@@ -98,11 +111,13 @@ internal sealed class DapDebugger : IDisposable
     public async Task Attach(
         int processId,
         bool justMyCode,
+        bool allowFuncEval,
         IReadOnlyList<string> filters,
         string? typeCondition,
         TimeSpan timeout)
     {
         Initialize();
+        _allowFuncEval = allowFuncEval;
 
         Send(new AttachRequest
         {
@@ -112,7 +127,8 @@ internal sealed class DapDebugger : IDisposable
                 ["type"] = "coreclr",
                 ["processId"] = processId,
                 ["console"] = "internalConsole",
-                ["justMyCode"] = justMyCode
+                ["justMyCode"] = justMyCode,
+                ["expressionEvaluationOptions"] = EvaluationOptions(allowFuncEval)
             }
         }, "Attaching");
 
@@ -135,12 +151,14 @@ internal sealed class DapDebugger : IDisposable
         string workingDirectory,
         IReadOnlyDictionary<string, string> environment,
         bool justMyCode,
+        bool allowFuncEval,
         IReadOnlyList<string> filters,
         string? typeCondition,
         TimeSpan timeout,
         MobileLaunchOptions? mobile = null)
     {
         Initialize();
+        _allowFuncEval = allowFuncEval;
 
         var configuration = new Dictionary<string, JToken>
         {
@@ -152,7 +170,8 @@ internal sealed class DapDebugger : IDisposable
             ["cwd"] = workingDirectory,
             ["env"] = JObject.FromObject(environment),
             ["console"] = "internalConsole",
-            ["justMyCode"] = justMyCode
+            ["justMyCode"] = justMyCode,
+            ["expressionEvaluationOptions"] = EvaluationOptions(allowFuncEval)
         };
 
         if (mobile is not null)
@@ -164,6 +183,13 @@ internal sealed class DapDebugger : IDisposable
 
         SetExceptionBreakpoints(filters, typeCondition);
     }
+
+    /// <summary>
+    /// Off, the debugger runs nothing in the debuggee on its own and refuses every call, construction
+    /// and enumeration an expression makes. It also turns ToString off, so allowToString is not sent.
+    /// </summary>
+    private static JObject EvaluationOptions(bool allowFuncEval) =>
+        new() { ["allowImplicitFuncEval"] = allowFuncEval };
 
     /// <summary>
     /// Adds what the adapter reads to decide this is a mobile launch. The property names are the
@@ -250,12 +276,16 @@ internal sealed class DapDebugger : IDisposable
     /// request whose outcome the session records may still be sent this way: it runs with the answer
     /// whenever that comes, before or after the wait, on the adapter's callback thread, and must not
     /// throw or block.
+    /// <paramref name="atDispatch"/> runs under the references lock together with the dispatch, so it
+    /// sees the references of the stop the adapter will answer at: the adapter answers in order, and a
+    /// resume is dispatched under the same lock.
     /// </summary>
     private TResponse Send<TArgs, TResponse>(
         DebugRequestWithResponse<TArgs, TResponse> request,
         TimeSpan timeout,
         string what,
-        Action<TResponse>? onAnswered = null)
+        Action<TResponse>? onAnswered = null,
+        Action? atDispatch = null)
         where TArgs : class, new()
         where TResponse : ResponseBody
     {
@@ -263,15 +293,29 @@ internal sealed class DapDebugger : IDisposable
 
         var completed = new TaskCompletionSource<TResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _host.SendRequest(
-            request,
-            (_, response) =>
+        void Dispatch() =>
+            _host.SendRequest(
+                request,
+                (_, response) =>
+                {
+                    // Before signalling, so a caller still waiting never sees the answer unrecorded
+                    onAnswered?.Invoke(response);
+                    completed.TrySetResult(response);
+                },
+                (_, ex) => completed.TrySetException(ex));
+
+        if (atDispatch is null)
+        {
+            Dispatch();
+        }
+        else
+        {
+            lock (_handedOut)
             {
-                // Before signalling, so a caller still waiting never sees the answer unrecorded
-                onAnswered?.Invoke(response);
-                completed.TrySetResult(response);
-            },
-            (_, ex) => completed.TrySetException(ex));
+                atDispatch();
+                Dispatch();
+            }
+        }
 
         Await(completed.Task, timeout, what);
         return completed.Task.Result;
@@ -400,17 +444,61 @@ internal sealed class DapDebugger : IDisposable
         var scopes = Send(new ScopesRequest { FrameId = frameId }, "Reading the frame's scopes");
         var first = scopes.Scopes?.FirstOrDefault();
 
-        return first is null ? [] : GetVariables(first.VariablesReference);
+        return first is null ? [] : ReadVariables(first.VariablesReference, checkHandedOut: false);
     }
 
-    public List<VariableInfo> GetVariables(int variablesReference)
+    /// <summary>
+    /// With function evaluation off a property comes back lazy: no value, and a reference whose
+    /// expansion runs the getter after all. That reference is withheld, so turning evaluation off
+    /// means no getter runs, not one that runs a step later. Only a reference this class handed out
+    /// in the current stop is expanded, since the adapter would run the getter for a guessed one.
+    /// </summary>
+    public List<VariableInfo> GetVariables(int variablesReference) =>
+        ReadVariables(variablesReference, checkHandedOut: !_allowFuncEval);
+
+    private List<VariableInfo> ReadVariables(int variablesReference, bool checkHandedOut)
     {
-        var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
+        var generation = 0;
+        var response = Send(
+            new VariablesRequest { VariablesReference = variablesReference },
+            _requestTimeout,
+            "Reading variables",
+            atDispatch: () =>
+            {
+                if (checkHandedOut && !_handedOut.Contains(variablesReference))
+                    throw new InvalidOperationException(
+                        $"Variables reference {variablesReference} was not handed out at this stop. With function " +
+                        "evaluation off only references from get_variables, expand_variable and evaluate_expression " +
+                        "at the current stop can be expanded");
+
+                generation = _stopGeneration;
+            });
 
         return response.Variables?
-            .Select(v => new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
+            .Select(v => v.PresentationHint?.Lazy == true
+                ? new VariableInfo(NameWithoutType(v.Name, v.Type), NotEvaluated, v.Type, 0)
+                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, HandOut(v.VariablesReference, generation)))
             .ToList() ?? [];
     }
+
+    /// <summary>
+    /// Records a reference as one the caller may expand, unless the stop it was read at is over
+    /// </summary>
+    private int HandOut(int variablesReference, int generation)
+    {
+        if (variablesReference > 0 && !_allowFuncEval)
+        {
+            lock (_handedOut)
+            {
+                if (generation == _stopGeneration)
+                    _handedOut.Add(variablesReference);
+            }
+        }
+
+        return variablesReference;
+    }
+
+    private const string NotEvaluated = "[not evaluated: function evaluation is off]";
 
     /// <summary>
     /// The debugger labels a variable "current [int]", which suits a tree in an editor and not a
@@ -467,9 +555,11 @@ internal sealed class DapDebugger : IDisposable
     /// </summary>
     public EvaluationResult Evaluate(string expression, int frameId, TimeSpan timeout)
     {
+        var generation = 0;
         var response = Send(
-            new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression");
-        return new EvaluationResult(response.Result, response.Type, response.VariablesReference);
+            new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression",
+            atDispatch: () => generation = _stopGeneration);
+        return new EvaluationResult(response.Result, response.Type, HandOut(response.VariablesReference, generation));
     }
 
     /// <summary>
@@ -620,6 +710,16 @@ internal sealed class DapDebugger : IDisposable
 
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // Every reference handed out at this stop stops applying once the resume is sent. Clearing them
+        // first is enough to order the two: a checked request dispatches under the lock, so one that
+        // passed its check is already sent, and one that comes later finds nothing to pass. The resume
+        // itself is sent outside the lock, since onFailed takes the session's.
+        lock (_handedOut)
+        {
+            _stopGeneration++;
+            _handedOut.Clear();
+        }
+
         _host.SendRequest(
             request,
             _ => completed.TrySetResult(),
@@ -672,8 +772,18 @@ internal sealed class DapDebugger : IDisposable
             OnProcessStarted?.Invoke(processId);
     }
 
-    private void OnStoppedEvent(StoppedEvent stopped) =>
+    private void OnStoppedEvent(StoppedEvent stopped)
+    {
+        // A reference only applies to the stop it was taken in, and the adapter may hand the same
+        // number out again for something else at the next one
+        lock (_handedOut)
+        {
+            _stopGeneration++;
+            _handedOut.Clear();
+        }
+
         OnStopped?.Invoke(stopped.ThreadId ?? 0, ReasonToString(stopped.Reason), stopped.HitBreakpointIds);
+    }
 
     /// <summary>
     /// Only what the debuggee itself wrote. The debugger reports its own progress through the same
