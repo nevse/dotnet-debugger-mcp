@@ -40,6 +40,7 @@ public class DebugSession : IDisposable
 
     private readonly int _sessionId;
     private readonly bool _justMyCode;
+    private readonly bool _allowFuncEval;
     private readonly TimeSpan _operationTimeout;
 
     /// <summary>
@@ -349,6 +350,7 @@ public class DebugSession : IDisposable
 
         _sessionId = sessionId;
         _justMyCode = configuration.JustMyCode;
+        _allowFuncEval = configuration.AllowFuncEval;
         _operationTimeout = TimeSpan.FromSeconds(configuration.OperationTimeoutSeconds);
         _startTimeout = _operationTimeout;
         _mobileStartTimeout = TimeSpan.FromSeconds(configuration.MobileStartTimeoutSeconds);
@@ -380,7 +382,7 @@ public class DebugSession : IDisposable
         try
         {
             await debugger.Attach(
-                processId, _justMyCode, filters, typeCondition, _operationTimeout);
+                processId, _justMyCode, _allowFuncEval, filters, typeCondition, _operationTimeout);
 
             // The attach is handed to a fire-and-forget task inside the adapter, so the process is
             // still unusable when configurationDone returns. Threads stay empty until the process
@@ -434,6 +436,7 @@ public class DebugSession : IDisposable
                 workingDirectory ?? Path.GetDirectoryName(program) ?? Environment.CurrentDirectory,
                 environment ?? new Dictionary<string, string>(),
                 _justMyCode,
+                _allowFuncEval,
                 filters,
                 typeCondition,
                 _operationTimeout,

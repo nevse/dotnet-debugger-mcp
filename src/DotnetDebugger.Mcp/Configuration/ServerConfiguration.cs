@@ -78,6 +78,19 @@ public class ServerConfiguration
     public bool RedactSecrets { get; set; } = true;
 
     /// <summary>
+    /// Let the debugger run code in the debuggee (default: true): property getters, ToString,
+    /// DebuggerTypeProxy and Results View while values are listed, and method calls and
+    /// constructions in evaluate_expression. Off, only fields, locals and arguments are read: a
+    /// property is listed without its value and an expression that makes a call fails, a breakpoint
+    /// condition included, which then stops at every hit. Two things still run code: the getters
+    /// get_exception_info reads, and the static constructor of a type whose static field is read
+    /// before the type was initialized. Meant for
+    /// the person running the server, like RedactSecrets; the agent has no tool to change it.
+    /// Environment variable: DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL
+    /// </summary>
+    public bool AllowFuncEval { get; set; } = true;
+
+    /// <summary>
     /// The host half of the remote CoreCLR debugger libraries, a directory holding one directory per
     /// RID. Unset, the copy that ships with the server is used, which is what debugging a mobile app
     /// normally needs; this is for a copy built locally instead.
@@ -192,6 +205,13 @@ public class ServerConfiguration
         if (bool.TryParse(redactSecrets, out var parsedRedactSecrets))
         {
             config.RedactSecrets = parsedRedactSecrets;
+        }
+
+        // Function evaluation
+        var allowFuncEval = Environment.GetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL");
+        if (bool.TryParse(allowFuncEval, out var parsedAllowFuncEval))
+        {
+            config.AllowFuncEval = parsedAllowFuncEval;
         }
 
         // Overrides of the bundled remote CoreCLR debugger libraries, for mobile debugging. Kept as
