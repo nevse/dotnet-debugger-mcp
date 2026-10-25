@@ -24,6 +24,7 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_JUST_MY_CODE", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS", null);
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -43,6 +44,7 @@ public class ServerConfigurationTests
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_JUST_MY_CODE", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REDACT_SECRETS", null);
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_HOST", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_REMOTE_CORECLR_TARGET", null);
         Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_MOBILE_START_TIMEOUT_SECONDS", null);
@@ -65,6 +67,7 @@ public class ServerConfigurationTests
         Assert.IsFalse(config.EnableDiagnostics);
         Assert.IsTrue(config.JustMyCode);
         Assert.IsTrue(config.RedactSecrets);
+        Assert.IsTrue(config.AllowFuncEval);
         Assert.IsNull(config.RemoteCoreclrHostDirectory);
         Assert.IsNull(config.RemoteCoreclrTargetDirectory);
         Assert.AreEqual(600, config.MobileStartTimeoutSeconds);
@@ -156,6 +159,19 @@ public class ServerConfigurationTests
 
         // Assert
         Assert.IsFalse(config.RedactSecrets);
+    }
+
+    [TestMethod]
+    public void LoadFromEnvironment_AllowFuncEval_False()
+    {
+        // Arrange
+        Environment.SetEnvironmentVariable("DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL", "false");
+
+        // Act
+        var config = ServerConfiguration.LoadFromEnvironment();
+
+        // Assert
+        Assert.IsFalse(config.AllowFuncEval);
     }
 
     [TestMethod]

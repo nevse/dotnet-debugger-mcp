@@ -1037,6 +1037,7 @@ public sealed class DebuggingTools
 
     [McpServerTool(Destructive = false, OpenWorld = false), Description(
         "Get local variables for a specific stack frame ID. " +
+        "With DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false a property shows as [not evaluated: function evaluation is off]. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string GetVariables(int frame_id, int? session_id = null)
@@ -1092,6 +1093,7 @@ public sealed class DebuggingTools
         "Expand a variables_reference into its members, which may themselves carry references to " +
         "expand further. References come from get_variables, from evaluate_expression and from this " +
         "tool. Expand while still stopped - a reference only applies to the stop it was taken in. " +
+        "With DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false a property shows as [not evaluated: function evaluation is off]. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]
     public string ExpandVariable(int variables_reference, int? session_id = null)
@@ -1356,7 +1358,9 @@ public sealed class DebuggingTools
     [McpServerTool(Destructive = true, OpenWorld = true), Description(
         "Evaluate a C# expression in the context of a stack frame. An expression that runs code in " +
         "the target - a property getter, ToString(), any method call - is allowed and does not cost " +
-        "the session. When the result is an object, variables_reference is non-zero and can be " +
+        "the session, unless the person running the server set DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false: " +
+        "then such an expression fails and only fields, locals and arguments can be read. " +
+        "When the result is an object, variables_reference is non-zero and can be " +
         "walked with expand_variable. " +
         "What looks like a secret is shown as [redacted: N chars], and redacted counts them; " +
         "the person running the server can turn that off with DOTNET_DEBUGGER_MCP_REDACT_SECRETS.")]

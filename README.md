@@ -395,6 +395,22 @@ patterns do not know, or read piecemeal - `evaluate_expression` of `password.Len
 passes. Set `DOTNET_DEBUGGER_MCP_REDACT_SECRETS=false` to see values unmasked; the agent has no way to
 turn it off itself.
 
+### Running code in the program
+
+`evaluate_expression` runs whatever the expression calls - a property getter, `ToString`, any method,
+`Process.Start` included - with the program's privileges, and listing variables runs property getters,
+`ToString` overrides and `DebuggerTypeProxy` constructors to show values. That is how a debugger shows
+what a program holds, and `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` is the only bound on it by default.
+
+Set `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false` to read the program without running any of it. Fields, locals
+and arguments are read as usual. A property is listed as `[not evaluated: function evaluation is off]`,
+an object shows as its type name in braces, and an expression that calls anything - a getter, a method,
+a constructor - fails. `get_exception_info` is the exception: the debugger still calls the exception's
+`Message` and `InnerException` getters to report them. The agent has no way to turn it back on.
+
+This narrows what debugging can run; it does not make the server safe to hand to an agent you do not
+trust. `launch_program` still starts any .NET program.
+
 ### Attaching to other users' processes
 
 A debugger can read and change everything in the process it attaches to, so by default this server
@@ -533,6 +549,7 @@ Set these as environment variables in your client's configuration:
 | `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` | Bounds `evaluate_expression` and `get_exception_info`. Minimum 100 | `5000` |
 | `DOTNET_DEBUGGER_MCP_BREAKPOINT_BIND_TIMEOUT_MS` | How long to wait for a breakpoint to bind before reporting it unverified, minimum 100 | `2000` |
 | `DOTNET_DEBUGGER_MCP_JUST_MY_CODE` | Restrict debugging to your own code. See above before turning this off | `true` |
+| `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL` | Let the debugger run code in the program: property getters, `ToString`, method calls in `evaluate_expression`. See above | `true` |
 | `DOTNET_DEBUGGER_MCP_REDACT_SECRETS` | Mask what looks like a secret in values before the model sees them. See above | `true` |
 | `DOTNET_DEBUGGER_MCP_ALLOW_OTHER_USER_PROCESSES` | Allow attaching to processes not owned by the current user | `false` |
 | `DOTNET_DEBUGGER_MCP_ENABLE_DIAGNOSTICS` | Detailed diagnostic logging | `false` |

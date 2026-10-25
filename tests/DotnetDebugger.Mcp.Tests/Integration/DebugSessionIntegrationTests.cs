@@ -515,6 +515,41 @@ public sealed class DebugSessionIntegrationTests
         Assert.AreEqual(0, evaluated.VariablesReference);
     }
 
+    /// <summary>
+    /// With function evaluation off nothing of the debuggee runs. Point's X is a property, so it is
+    /// listed without a value and without the reference the debugger hands out for reading it on
+    /// demand - expanding that would run the getter after all. A local still reads, and so does an
+    /// expression that needs no call, while one that calls the getter is refused.
+    /// </summary>
+    [TestMethod]
+    public async Task FuncEvalOff_PropertiesAreNotReadAndCallsAreRefused()
+    {
+        var line = TestPaths.FindMarkerLine("EXPAND-TARGET");
+
+        using var debuggee = DebuggeeProcess.Start();
+        using var session = new DebugSession(1, new ServerConfiguration { AllowFuncEval = false });
+
+        await session.Attach(debuggee.ProcessId);
+        session.SetBreakpoint(TestPaths.TestAppSource, line);
+        var state = WaitForStop(session);
+
+        var frames = session.GetStackTrace(state.StoppedThreadId!.Value);
+        var variables = await session.GetVariables(frames[0].Id);
+        var point = variables.Single(v => v.Name == "point");
+        var next = variables.Single(v => v.Name == "next");
+
+        var x = (await session.ExpandVariable(point.VariablesReference)).Single(m => m.Name == "X");
+        Assert.AreEqual("[not evaluated: function evaluation is off]", x.Value);
+        Assert.AreEqual(0, x.VariablesReference, "Expanding a lazy property runs its getter");
+
+        var plain = await session.EvaluateExpression("next + 1", frames[0].Id);
+        Assert.AreEqual((int.Parse(next.Value) + 1).ToString(), plain.Result);
+
+        var refused = await Assert.ThrowsAsync<Exception>(
+            () => session.EvaluateExpression("point.X", frames[0].Id));
+        Assert.Contains("disabled", refused.Message);
+    }
+
     [TestMethod]
     public async Task ExpandVariable_UnknownReference_Throws()
     {

@@ -98,6 +98,7 @@ internal sealed class DapDebugger : IDisposable
     public async Task Attach(
         int processId,
         bool justMyCode,
+        bool allowFuncEval,
         IReadOnlyList<string> filters,
         string? typeCondition,
         TimeSpan timeout)
@@ -112,7 +113,8 @@ internal sealed class DapDebugger : IDisposable
                 ["type"] = "coreclr",
                 ["processId"] = processId,
                 ["console"] = "internalConsole",
-                ["justMyCode"] = justMyCode
+                ["justMyCode"] = justMyCode,
+                ["expressionEvaluationOptions"] = EvaluationOptions(allowFuncEval)
             }
         }, "Attaching");
 
@@ -135,6 +137,7 @@ internal sealed class DapDebugger : IDisposable
         string workingDirectory,
         IReadOnlyDictionary<string, string> environment,
         bool justMyCode,
+        bool allowFuncEval,
         IReadOnlyList<string> filters,
         string? typeCondition,
         TimeSpan timeout,
@@ -152,7 +155,8 @@ internal sealed class DapDebugger : IDisposable
             ["cwd"] = workingDirectory,
             ["env"] = JObject.FromObject(environment),
             ["console"] = "internalConsole",
-            ["justMyCode"] = justMyCode
+            ["justMyCode"] = justMyCode,
+            ["expressionEvaluationOptions"] = EvaluationOptions(allowFuncEval)
         };
 
         if (mobile is not null)
@@ -164,6 +168,13 @@ internal sealed class DapDebugger : IDisposable
 
         SetExceptionBreakpoints(filters, typeCondition);
     }
+
+    /// <summary>
+    /// Off, the debugger runs nothing in the debuggee on its own and refuses every call, construction
+    /// and enumeration an expression makes. It also turns ToString off, so allowToString is not sent.
+    /// </summary>
+    private static JObject EvaluationOptions(bool allowFuncEval) =>
+        new() { ["allowImplicitFuncEval"] = allowFuncEval };
 
     /// <summary>
     /// Adds what the adapter reads to decide this is a mobile launch. The property names are the
@@ -403,14 +414,23 @@ internal sealed class DapDebugger : IDisposable
         return first is null ? [] : GetVariables(first.VariablesReference);
     }
 
+    /// <summary>
+    /// With function evaluation off a property comes back lazy: no value, and a reference whose
+    /// expansion runs the getter after all. That reference is withheld, so turning evaluation off
+    /// means no getter runs, not one that runs a step later.
+    /// </summary>
     public List<VariableInfo> GetVariables(int variablesReference)
     {
         var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
 
         return response.Variables?
-            .Select(v => new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
+            .Select(v => v.PresentationHint?.Lazy == true
+                ? new VariableInfo(NameWithoutType(v.Name, v.Type), NotEvaluated, v.Type, 0)
+                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
             .ToList() ?? [];
     }
+
+    private const string NotEvaluated = "[not evaluated: function evaluation is off]";
 
     /// <summary>
     /// The debugger labels a variable "current [int]", which suits a tree in an editor and not a
