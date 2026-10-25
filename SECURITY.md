@@ -24,7 +24,9 @@ Two capabilities come with being a debugger and cannot be removed without defeat
 - **Running code inside the debuggee.** `evaluate_expression` calls whatever the expression calls, and
   listing variables runs property getters and `ToString` overrides. A breakpoint condition is an
   expression evaluated at every hit. Whether an expression is harmless cannot be decided in general, and
-  the server does not try.
+  the server does not try. `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false` turns this off, leaving fields, locals
+  and arguments readable, with the exceptions listed in
+  [Running code in the program](README.md#running-code-in-the-program).
 
 What a debugger shows is also what the debuggee holds, credentials included. Values that look like
 secrets are masked before they reach the client (see
@@ -51,6 +53,8 @@ To limit what a client can reach, limit the server:
 - A way for the client to do something the server documents it refuses: launching a native executable,
   passing a refused environment variable, attaching to another user's process with the setting off,
   turning secret masking off.
+- Code in the debuggee running with `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false` other than in the ways the
+  README lists.
 - A secret in a shape the masking claims to catch reaching the client unmasked.
 - The server writing debuggee values or program output somewhere other than the client - logs, files -
   unmasked.
