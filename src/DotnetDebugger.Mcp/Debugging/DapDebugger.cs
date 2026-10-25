@@ -38,6 +38,11 @@ internal sealed class DapDebugger : IDisposable
     // an object while answering with a page of them, so some are never seen to be withheld at all.
     private readonly HashSet<int> _handedOut = [];
 
+    // Advanced, under the same lock, whenever the references stop applying: when a resume is sent and
+    // when a stop arrives. A request records the value as it is sent, and its answer hands references
+    // out only if nothing advanced it since, so an answer from one stop cannot add to the next.
+    private int _stopGeneration;
+
     /// <summary>
     /// Thread id, reason, and the adapter ids of the breakpoints the stop is attributed to. A DAP stop
     /// carries no source location - SharpDbg does attach one as an additional property, but
@@ -271,12 +276,16 @@ internal sealed class DapDebugger : IDisposable
     /// request whose outcome the session records may still be sent this way: it runs with the answer
     /// whenever that comes, before or after the wait, on the adapter's callback thread, and must not
     /// throw or block.
+    /// <paramref name="atDispatch"/> runs under the references lock together with the dispatch, so it
+    /// sees the references of the stop the adapter will answer at: the adapter answers in order, and a
+    /// resume is dispatched under the same lock.
     /// </summary>
     private TResponse Send<TArgs, TResponse>(
         DebugRequestWithResponse<TArgs, TResponse> request,
         TimeSpan timeout,
         string what,
-        Action<TResponse>? onAnswered = null)
+        Action<TResponse>? onAnswered = null,
+        Action? atDispatch = null)
         where TArgs : class, new()
         where TResponse : ResponseBody
     {
@@ -284,15 +293,29 @@ internal sealed class DapDebugger : IDisposable
 
         var completed = new TaskCompletionSource<TResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _host.SendRequest(
-            request,
-            (_, response) =>
+        void Dispatch() =>
+            _host.SendRequest(
+                request,
+                (_, response) =>
+                {
+                    // Before signalling, so a caller still waiting never sees the answer unrecorded
+                    onAnswered?.Invoke(response);
+                    completed.TrySetResult(response);
+                },
+                (_, ex) => completed.TrySetException(ex));
+
+        if (atDispatch is null)
+        {
+            Dispatch();
+        }
+        else
+        {
+            lock (_handedOut)
             {
-                // Before signalling, so a caller still waiting never sees the answer unrecorded
-                onAnswered?.Invoke(response);
-                completed.TrySetResult(response);
-            },
-            (_, ex) => completed.TrySetException(ex));
+                atDispatch();
+                Dispatch();
+            }
+        }
 
         Await(completed.Task, timeout, what);
         return completed.Task.Result;
@@ -421,7 +444,7 @@ internal sealed class DapDebugger : IDisposable
         var scopes = Send(new ScopesRequest { FrameId = frameId }, "Reading the frame's scopes");
         var first = scopes.Scopes?.FirstOrDefault();
 
-        return first is null ? [] : ReadVariables(first.VariablesReference);
+        return first is null ? [] : ReadVariables(first.VariablesReference, checkHandedOut: false);
     }
 
     /// <summary>
@@ -430,40 +453,46 @@ internal sealed class DapDebugger : IDisposable
     /// means no getter runs, not one that runs a step later. Only a reference this class handed out
     /// in the current stop is expanded, since the adapter would run the getter for a guessed one.
     /// </summary>
-    public List<VariableInfo> GetVariables(int variablesReference)
+    public List<VariableInfo> GetVariables(int variablesReference) =>
+        ReadVariables(variablesReference, checkHandedOut: !_allowFuncEval);
+
+    private List<VariableInfo> ReadVariables(int variablesReference, bool checkHandedOut)
     {
-        if (!_allowFuncEval)
-        {
-            lock (_handedOut)
+        var generation = 0;
+        var response = Send(
+            new VariablesRequest { VariablesReference = variablesReference },
+            _requestTimeout,
+            "Reading variables",
+            atDispatch: () =>
             {
-                if (!_handedOut.Contains(variablesReference))
+                if (checkHandedOut && !_handedOut.Contains(variablesReference))
                     throw new InvalidOperationException(
                         $"Variables reference {variablesReference} was not handed out at this stop. With function " +
                         "evaluation off only references from get_variables, expand_variable and evaluate_expression " +
                         "at the current stop can be expanded");
-            }
-        }
 
-        return ReadVariables(variablesReference);
-    }
-
-    private List<VariableInfo> ReadVariables(int variablesReference)
-    {
-        var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
+                generation = _stopGeneration;
+            });
 
         return response.Variables?
             .Select(v => v.PresentationHint?.Lazy == true
                 ? new VariableInfo(NameWithoutType(v.Name, v.Type), NotEvaluated, v.Type, 0)
-                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, HandOut(v.VariablesReference)))
+                : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, HandOut(v.VariablesReference, generation)))
             .ToList() ?? [];
     }
 
-    private int HandOut(int variablesReference)
+    /// <summary>
+    /// Records a reference as one the caller may expand, unless the stop it was read at is over
+    /// </summary>
+    private int HandOut(int variablesReference, int generation)
     {
         if (variablesReference > 0 && !_allowFuncEval)
         {
             lock (_handedOut)
-                _handedOut.Add(variablesReference);
+            {
+                if (generation == _stopGeneration)
+                    _handedOut.Add(variablesReference);
+            }
         }
 
         return variablesReference;
@@ -526,9 +555,11 @@ internal sealed class DapDebugger : IDisposable
     /// </summary>
     public EvaluationResult Evaluate(string expression, int frameId, TimeSpan timeout)
     {
+        var generation = 0;
         var response = Send(
-            new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression");
-        return new EvaluationResult(response.Result, response.Type, HandOut(response.VariablesReference));
+            new EvaluateRequest { Expression = expression, FrameId = frameId }, timeout, "Evaluating the expression",
+            atDispatch: () => generation = _stopGeneration);
+        return new EvaluationResult(response.Result, response.Type, HandOut(response.VariablesReference, generation));
     }
 
     /// <summary>
@@ -679,6 +710,16 @@ internal sealed class DapDebugger : IDisposable
 
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // Every reference handed out at this stop stops applying once the resume is sent. Clearing them
+        // first is enough to order the two: a checked request dispatches under the lock, so one that
+        // passed its check is already sent, and one that comes later finds nothing to pass. The resume
+        // itself is sent outside the lock, since onFailed takes the session's.
+        lock (_handedOut)
+        {
+            _stopGeneration++;
+            _handedOut.Clear();
+        }
+
         _host.SendRequest(
             request,
             _ => completed.TrySetResult(),
@@ -736,7 +777,10 @@ internal sealed class DapDebugger : IDisposable
         // A reference only applies to the stop it was taken in, and the adapter may hand the same
         // number out again for something else at the next one
         lock (_handedOut)
+        {
+            _stopGeneration++;
             _handedOut.Clear();
+        }
 
         OnStopped?.Invoke(stopped.ThreadId ?? 0, ReasonToString(stopped.Reason), stopped.HitBreakpointIds);
     }
