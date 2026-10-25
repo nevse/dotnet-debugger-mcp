@@ -24,6 +24,7 @@ internal sealed class DapDebugger : IDisposable
     private readonly DebugProtocolHost _host;
     private readonly ChildProcessDebugAdapter.AdapterProcess _adapter;
     private readonly Action<string>? _logger;
+    private readonly bool _redactSecrets;
     private readonly TimeSpan _requestTimeout;
     private readonly TaskCompletionSource _initialized =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -78,12 +79,17 @@ internal sealed class DapDebugger : IDisposable
     /// time, so the first one to stall holds off every later one, the disconnect that would tear the
     /// session down included; without a bound its caller waits for the life of the process.
     /// </param>
-    public DapDebugger(TimeSpan requestTimeout, Action<string>? logger = null)
+    /// <param name="redactSecrets">
+    /// Whether what goes to <paramref name="logger"/> and the log is masked. The adapter's stderr and
+    /// its error messages can quote values of the debuggee, and the log outlives the session.
+    /// </param>
+    public DapDebugger(TimeSpan requestTimeout, Action<string>? logger = null, bool redactSecrets = true)
     {
-        _logger = logger;
+        _redactSecrets = redactSecrets;
+        _logger = logger is null ? null : message => logger(Mask(message));
         _requestTimeout = requestTimeout;
 
-        var (input, output, adapter) = ChildProcessDebugAdapter.Start(logger);
+        var (input, output, adapter) = ChildProcessDebugAdapter.Start(_logger);
         _adapter = adapter;
         _host = new DebugProtocolHost(input, output, false);
 
@@ -321,7 +327,7 @@ internal sealed class DapDebugger : IDisposable
         return completed.Task.Result;
     }
 
-    private static void Await(Task completed, TimeSpan timeout, string what)
+    private void Await(Task completed, TimeSpan timeout, string what)
     {
         // Waiting on the handle rather than on the task: Task.Wait throws the fault wrapped in an
         // AggregateException, which would hide the ProtocolException the line below exists to
@@ -338,14 +344,19 @@ internal sealed class DapDebugger : IDisposable
         completed.GetAwaiter().GetResult();
     }
 
-    /// <summary>Nobody is left to receive an exception from a request that fails after the wait</summary>
-    private static void LogLateFailure(Task completed, string what) =>
+    /// <summary>
+    /// Nobody is left to receive an exception from a request that fails after the wait. Its message
+    /// can quote the debuggee - an evaluation's error is the exception it threw - so it is masked.
+    /// </summary>
+    private void LogLateFailure(Task completed, string what) =>
         completed.ContinueWith(
             t => McpLogger.LogWarning(
                 "{Request} failed after the caller stopped waiting: {Error}",
                 what,
-                t.Exception!.GetBaseException().Message),
+                Mask(t.Exception!.GetBaseException().Message)),
             TaskContinuationOptions.OnlyOnFaulted);
+
+    private string Mask(string text) => new SecretRedactor(_redactSecrets).Text(text);
 
     /// <summary>
     /// Says which exceptions should suspend the debuggee. Sent on attach and launch, and again whenever

@@ -3,8 +3,9 @@
 ## Reporting a vulnerability
 
 Report it privately through GitHub: open the repository's **Security** tab and choose **Report a
-vulnerability**. Please do not open a public issue for it. Include the version (`dotnet tool list -g`
-shows it), the operating system, and the steps or tool calls that reproduce it.
+vulnerability**. Please do not open a public issue for it. Include the version - the `--version` your MCP
+client's configuration passes, or the `DotnetDebugger.Mcp v... starting...` line the server logs at
+startup - the operating system, and the steps or tool calls that reproduce it.
 
 Only the latest release is supported; a fix ships as a new release rather than as a patch to an older one.
 

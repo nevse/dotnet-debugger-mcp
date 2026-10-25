@@ -536,7 +536,7 @@ public class DebugSession : IDisposable
 
         McpLogger.LogDebugSessionEvent(_sessionId, logEvent, what);
 
-        var debugger = new DapDebugger(_operationTimeout, LogMessage);
+        var debugger = new DapDebugger(_operationTimeout, LogMessage, _redactSecrets);
 
         debugger.OnStopped += OnDebuggerStopped;
         debugger.OnContinued += OnDebuggerContinued;
@@ -785,7 +785,8 @@ public class DebugSession : IDisposable
     /// <summary>
     /// The server's stderr ends up in the client's log files, which outlive the session and are not
     /// what the masking in get_program_output protects. So stderr gets the line's length alone, and its text
-    /// is logged only at Debug, masked like get_program_output masks it.
+    /// is logged only at Debug, masked one line at a time: unlike get_program_output, which masks a run of
+    /// lines as one text, a secret printed over several lines - a PEM key - may be masked only in part.
     /// </summary>
     private void OnDebuggerOutput(string message, bool isError)
     {

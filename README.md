@@ -391,7 +391,9 @@ first, as `[redacted: N chars]`. Two rules decide it:
 question. Each response says how many values it masked in `redacted`.
 
 The server's own log, which MCP clients usually keep on disk, records only how long each line of program
-output was. The text itself is logged at `DOTNET_DEBUGGER_MCP_LOG_LEVEL=Debug` and below, masked the same way.
+output was. The text itself is logged at `DOTNET_DEBUGGER_MCP_LOG_LEVEL=Debug` and below, masked one line at a
+time, so a secret printed over several lines, such as a PEM key, may be masked only in part there. Errors the
+debugger reports after a request gave up waiting, and the debugger's own diagnostic output, are masked too.
 
 This reduces exposure; it does not prevent it. A secret in a variable called `s`, in a format the
 patterns do not know, or read piecemeal - `evaluate_expression` of `password.Length` or `password[0]` -
