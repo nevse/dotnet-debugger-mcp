@@ -30,6 +30,10 @@ internal sealed class DapDebugger : IDisposable
 
     private bool _disposed;
 
+    // The lazy references withheld since the last stop. Withholding one is not enough by itself:
+    // the adapter still honours it, and references are sequential, so one can be guessed.
+    private readonly HashSet<int> _withheldReferences = [];
+
     /// <summary>
     /// Thread id, reason, and the adapter ids of the breakpoints the stop is attributed to. A DAP stop
     /// carries no source location - SharpDbg does attach one as an additional property, but
@@ -417,17 +421,33 @@ internal sealed class DapDebugger : IDisposable
     /// <summary>
     /// With function evaluation off a property comes back lazy: no value, and a reference whose
     /// expansion runs the getter after all. That reference is withheld, so turning evaluation off
-    /// means no getter runs, not one that runs a step later.
+    /// means no getter runs, not one that runs a step later. It is also refused when asked for, since
+    /// the adapter would still run the getter for it.
     /// </summary>
     public List<VariableInfo> GetVariables(int variablesReference)
     {
+        lock (_withheldReferences)
+        {
+            if (_withheldReferences.Contains(variablesReference))
+                throw new InvalidOperationException(
+                    "This is a property, and reading it runs its getter, which function evaluation being off refuses");
+        }
+
         var response = Send(new VariablesRequest { VariablesReference = variablesReference }, "Reading variables");
 
         return response.Variables?
             .Select(v => v.PresentationHint?.Lazy == true
-                ? new VariableInfo(NameWithoutType(v.Name, v.Type), NotEvaluated, v.Type, 0)
+                ? Withhold(v)
                 : new VariableInfo(NameWithoutType(v.Name, v.Type), v.Value, v.Type, v.VariablesReference))
             .ToList() ?? [];
+    }
+
+    private VariableInfo Withhold(Variable variable)
+    {
+        lock (_withheldReferences)
+            _withheldReferences.Add(variable.VariablesReference);
+
+        return new VariableInfo(NameWithoutType(variable.Name, variable.Type), NotEvaluated, variable.Type, 0);
     }
 
     private const string NotEvaluated = "[not evaluated: function evaluation is off]";
@@ -692,8 +712,15 @@ internal sealed class DapDebugger : IDisposable
             OnProcessStarted?.Invoke(processId);
     }
 
-    private void OnStoppedEvent(StoppedEvent stopped) =>
+    private void OnStoppedEvent(StoppedEvent stopped)
+    {
+        // A reference only applies to the stop it was taken in, and the adapter may hand the same
+        // number out again for something else at the next one
+        lock (_withheldReferences)
+            _withheldReferences.Clear();
+
         OnStopped?.Invoke(stopped.ThreadId ?? 0, ReasonToString(stopped.Reason), stopped.HitBreakpointIds);
+    }
 
     /// <summary>
     /// Only what the debuggee itself wrote. The debugger reports its own progress through the same

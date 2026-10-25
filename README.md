@@ -402,11 +402,20 @@ turn it off itself.
 `ToString` overrides and `DebuggerTypeProxy` constructors to show values. That is how a debugger shows
 what a program holds, and `DOTNET_DEBUGGER_MCP_EVAL_TIMEOUT_MS` is the only bound on it by default.
 
-Set `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false` to read the program without running any of it. Fields, locals
-and arguments are read as usual. A property is listed as `[not evaluated: function evaluation is off]`,
-an object shows as its type name in braces, and an expression that calls anything - a getter, a method,
-a constructor - fails. `get_exception_info` is the exception: the debugger still calls the exception's
-`Message` and `InnerException` getters to report them. The agent has no way to turn it back on.
+Set `DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL=false` to stop the debugger running the program's code, whether to
+show a value or because an expression asks it to. Fields, locals and arguments are read as usual. A
+property is listed as `[not evaluated: function evaluation is off]`, an object shows as its type name in
+braces, and an expression that calls anything - a getter, a method, a constructor - fails. The agent has
+no way to turn it back on. Two things still run code:
+
+- `get_exception_info` calls the exception's `Message` and `InnerException` getters to report them.
+- Reading a static field of a type that has not been initialized yet runs that type's static
+  constructor, in `evaluate_expression` and when static members are expanded alike.
+
+A breakpoint condition is an expression too, so one that calls a getter or a method - `items.Count > 3`
+- cannot be evaluated with this off. Such a breakpoint stops at every hit, as if it had no condition,
+and nothing in the stop says why. Compare fields instead, or leave the condition out and check after
+the stop.
 
 This narrows what debugging can run; it does not make the server safe to hand to an agent you do not
 trust. `launch_program` still starts any .NET program.

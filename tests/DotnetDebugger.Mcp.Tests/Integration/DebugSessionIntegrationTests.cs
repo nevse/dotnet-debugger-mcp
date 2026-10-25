@@ -542,6 +542,28 @@ public sealed class DebugSessionIntegrationTests
         Assert.AreEqual("[not evaluated: function evaluation is off]", x.Value);
         Assert.AreEqual(0, x.VariablesReference, "Expanding a lazy property runs its getter");
 
+        // The adapter still holds the reference it was given, and references are handed out in
+        // sequence, so guessing the numbers after point's must not reach the getter either
+        var withheld = 0;
+        for (var guess = point.VariablesReference + 1; guess <= point.VariablesReference + 20; guess++)
+        {
+            try
+            {
+                var read = await session.ExpandVariable(guess);
+                Assert.IsFalse(read.Any(v => v.Name == "X" && v.Value == next.Value),
+                    $"Reference {guess} ran X's getter");
+            }
+            catch (InvalidOperationException)
+            {
+                withheld++;
+            }
+            catch (ProtocolException)
+            {
+                // Not a reference the adapter knows
+            }
+        }
+        Assert.IsGreaterThan(0, withheld, "The withheld references were not refused");
+
         var plain = await session.EvaluateExpression("next + 1", frames[0].Id);
         Assert.AreEqual((int.Parse(next.Value) + 1).ToString(), plain.Result);
 

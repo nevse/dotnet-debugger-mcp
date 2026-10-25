@@ -81,7 +81,10 @@ public class ServerConfiguration
     /// Let the debugger run code in the debuggee (default: true): property getters, ToString,
     /// DebuggerTypeProxy and Results View while values are listed, and method calls and
     /// constructions in evaluate_expression. Off, only fields, locals and arguments are read: a
-    /// property is listed without its value and an expression that makes a call fails. Meant for
+    /// property is listed without its value and an expression that makes a call fails, a breakpoint
+    /// condition included, which then stops at every hit. Two things still run code: the getters
+    /// get_exception_info reads, and the static constructor of a type whose static field is read
+    /// before the type was initialized. Meant for
     /// the person running the server, like RedactSecrets; the agent has no tool to change it.
     /// Environment variable: DOTNET_DEBUGGER_MCP_ALLOW_FUNC_EVAL
     /// </summary>
