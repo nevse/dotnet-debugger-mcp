@@ -40,6 +40,7 @@ public class DebugSession : IDisposable
 
     private readonly int _sessionId;
     private readonly bool _justMyCode;
+    private readonly bool _redactSecrets;
     private readonly TimeSpan _operationTimeout;
 
     /// <summary>
@@ -349,6 +350,7 @@ public class DebugSession : IDisposable
 
         _sessionId = sessionId;
         _justMyCode = configuration.JustMyCode;
+        _redactSecrets = configuration.RedactSecrets;
         _operationTimeout = TimeSpan.FromSeconds(configuration.OperationTimeoutSeconds);
         _startTimeout = _operationTimeout;
         _mobileStartTimeout = TimeSpan.FromSeconds(configuration.MobileStartTimeoutSeconds);
@@ -777,10 +779,15 @@ public class DebugSession : IDisposable
             McpLogger.LogDebugSessionEvent(_sessionId, "ProcessStarted", $"Process {processId}");
     }
 
+    /// <summary>
+    /// The server's stderr ends up in the client's log files, which outlive the session and are not
+    /// what the masking in get_program_output protects. So stderr gets the line's length alone, and its text
+    /// is logged only at Debug, masked like get_program_output masks it.
+    /// </summary>
     private void OnDebuggerOutput(string message, bool isError)
     {
-        McpLogger.LogDebug("Session {SessionId} | Output: {Message}", _sessionId, message);
-        LogMessage($"Output{(isError ? " (stderr)" : string.Empty)}: {message}");
+        McpLogger.LogDebug("Session {SessionId} | Output: {Message}", _sessionId, new SecretRedactor(_redactSecrets).Text(message));
+        LogMessage($"Output{(isError ? " (stderr)" : string.Empty)}: {message.Length} chars");
 
         lock (_stateLock)
         {
